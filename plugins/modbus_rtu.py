@@ -1,22 +1,28 @@
 """
 tunehud_gateway/plugins/modbus_rtu.py
-Modbus RTU transport — pymodbus 2.x compatible.
+Modbus RTU — compatible with pymodbus 2.x and 3.x
 """
 from __future__ import annotations
 import asyncio
 import logging
-from typing import Any, Optional
+import sys
 
-from pymodbus.client.sync import ModbusSerialClient
+import pymodbus
+PYMODBUS_V3 = int(pymodbus.__version__.split('.')[0]) >= 3
+
+if PYMODBUS_V3:
+    from pymodbus.client import AsyncModbusSerialClient
+else:
+    from pymodbus.client.sync import ModbusSerialClient
+
 from pymodbus.exceptions import ModbusException
-
 from .base import TransportPlugin, ParamDescriptor
 from .modbus_tcp import _decode, _encode, TYPE_WORDS
 
 try:
     from config import load_map
 except ImportError:
-    import sys, os
+    import os
     sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
     from config import load_map
 
@@ -40,9 +46,7 @@ class ModbusRTUTransport(TransportPlugin):
             entry['_name'] = name
             self._param_map[name] = entry
             dtype = entry.get('type', 'float32')
-            ptype = 'float'
-            if dtype in ('bool',): ptype = 'bool'
-            elif dtype in ('int16','int32','uint16','uint32'): ptype = 'int'
+            ptype = 'bool' if dtype == 'bool' else ('int' if dtype in ('int16','int32','uint16','uint32') else 'float')
             self._descriptors.append(ParamDescriptor(
                 name=name, label=entry.get('label', name), type=ptype,
                 units=entry.get('units'), min=entry.get('min'), max=entry.get('max'),
@@ -57,14 +61,20 @@ class ModbusRTUTransport(TransportPlugin):
         stopbits = int(self.config.get('stopbits', 1))
         bytesize = int(self.config.get('bytesize', 8))
         log.info('Connecting Modbus RTU {} {}'.format(port, baudrate))
-        loop = asyncio.get_event_loop()
-        self._client = ModbusSerialClient(
-            method='rtu', port=port, baudrate=baudrate,
-            parity=parity, stopbits=stopbits, bytesize=bytesize)
-        connected = await loop.run_in_executor(None, self._client.connect)
-        if not connected:
+        if PYMODBUS_V3:
+            self._client = AsyncModbusSerialClient(
+                port=port, baudrate=baudrate, parity=parity,
+                stopbits=stopbits, bytesize=bytesize)
+            await self._client.connect()
+            self._connected = self._client.connected
+        else:
+            loop = asyncio.get_event_loop()
+            self._client = ModbusSerialClient(
+                method='rtu', port=port, baudrate=baudrate,
+                parity=parity, stopbits=stopbits, bytesize=bytesize)
+            self._connected = await loop.run_in_executor(None, self._client.connect)
+        if not self._connected:
             raise ConnectionError('Failed to connect Modbus RTU on {}'.format(port))
-        self._connected = True
         log.info('Modbus RTU connected')
 
     async def disconnect(self):
@@ -86,9 +96,12 @@ class ModbusRTUTransport(TransportPlugin):
         words = TYPE_WORDS.get(dtype, 1)
         scale = float(entry.get('scale', 1.0))
         offset = float(entry.get('offset', 0.0))
-        loop = asyncio.get_event_loop()
-        result = await loop.run_in_executor(None,
-            lambda: self._client.read_holding_registers(reg, count=words, unit=self._unit_id))
+        if PYMODBUS_V3:
+            result = await self._client.read_holding_registers(reg, count=words, slave=self._unit_id)
+        else:
+            loop = asyncio.get_event_loop()
+            result = await loop.run_in_executor(None,
+                lambda: self._client.read_holding_registers(reg, count=words, unit=self._unit_id))
         if result is None or result.isError():
             raise ModbusException('Read error at register {}'.format(reg))
         return _decode(result.registers, dtype) * scale + offset
@@ -108,11 +121,17 @@ class ModbusRTUTransport(TransportPlugin):
         offset = float(entry.get('offset', 0.0))
         raw_val = (float(value) - offset) / scale
         words = _encode(raw_val, dtype)
-        loop = asyncio.get_event_loop()
-        if len(words) == 1:
-            await loop.run_in_executor(None, lambda: self._client.write_register(reg, words[0], unit=self._unit_id))
+        if PYMODBUS_V3:
+            if len(words) == 1:
+                await self._client.write_register(reg, words[0], slave=self._unit_id)
+            else:
+                await self._client.write_registers(reg, words, slave=self._unit_id)
         else:
-            await loop.run_in_executor(None, lambda: self._client.write_registers(reg, words, unit=self._unit_id))
+            loop = asyncio.get_event_loop()
+            if len(words) == 1:
+                await loop.run_in_executor(None, lambda: self._client.write_register(reg, words[0], unit=self._unit_id))
+            else:
+                await loop.run_in_executor(None, lambda: self._client.write_registers(reg, words, unit=self._unit_id))
         return await self._read_register(entry)
 
     async def read_all(self):

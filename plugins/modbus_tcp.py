@@ -1,22 +1,28 @@
 """
 tunehud_gateway/plugins/modbus_tcp.py
-Modbus TCP transport — pymodbus 2.x compatible.
+Modbus TCP — compatible with pymodbus 2.x and 3.x
 """
 from __future__ import annotations
 import asyncio
 import logging
 import struct
-from typing import Any, Optional, Dict
+import sys
 
-from pymodbus.client.sync import ModbusTcpClient
+import pymodbus
+PYMODBUS_V3 = int(pymodbus.__version__.split('.')[0]) >= 3
+
+if PYMODBUS_V3:
+    from pymodbus.client import AsyncModbusTcpClient
+else:
+    from pymodbus.client.sync import ModbusTcpClient
+
 from pymodbus.exceptions import ModbusException
-
 from .base import TransportPlugin, ParamDescriptor
 
 try:
     from config import load_map
 except ImportError:
-    import sys, os
+    import os
     sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
     from config import load_map
 
@@ -26,8 +32,7 @@ TYPE_WORDS = {'float32':2,'float16':1,'int32':2,'uint32':2,'int16':1,'uint16':1,
 
 def _decode(registers, dtype):
     if dtype == 'float32':
-        raw = struct.pack('>HH', registers[0], registers[1])
-        return struct.unpack('>f', raw)[0]
+        return struct.unpack('>f', struct.pack('>HH', registers[0], registers[1]))[0]
     elif dtype == 'float16':
         return struct.unpack('>e', struct.pack('>H', registers[0]))[0]
     elif dtype == 'int16':
@@ -35,19 +40,16 @@ def _decode(registers, dtype):
     elif dtype == 'uint16':
         return float(registers[0])
     elif dtype == 'int32':
-        raw = struct.pack('>HH', registers[0], registers[1])
-        return float(struct.unpack('>i', raw)[0])
+        return float(struct.unpack('>i', struct.pack('>HH', registers[0], registers[1]))[0])
     elif dtype == 'uint32':
-        raw = struct.pack('>HH', registers[0], registers[1])
-        return float(struct.unpack('>I', raw)[0])
+        return float(struct.unpack('>I', struct.pack('>HH', registers[0], registers[1]))[0])
     elif dtype == 'bool':
         return float(registers[0] != 0)
     return float(registers[0])
 
 def _encode(value, dtype):
     if dtype == 'float32':
-        raw = struct.pack('>f', float(value))
-        return list(struct.unpack('>HH', raw))
+        return list(struct.unpack('>HH', struct.pack('>f', float(value))))
     elif dtype == 'float16':
         return [struct.unpack('>H', struct.pack('>e', float(value)))[0]]
     elif dtype == 'int16':
@@ -80,9 +82,7 @@ class ModbusTCPTransport(TransportPlugin):
             entry['_name'] = name
             self._param_map[name] = entry
             dtype = entry.get('type', 'float32')
-            ptype = 'float'
-            if dtype in ('bool',): ptype = 'bool'
-            elif dtype in ('int16','int32','uint16','uint32'): ptype = 'int'
+            ptype = 'bool' if dtype == 'bool' else ('int' if dtype in ('int16','int32','uint16','uint32') else 'float')
             self._descriptors.append(ParamDescriptor(
                 name=name, label=entry.get('label', name), type=ptype,
                 units=entry.get('units'), min=entry.get('min'), max=entry.get('max'),
@@ -94,17 +94,24 @@ class ModbusTCPTransport(TransportPlugin):
         host = self.config.get('host', 'localhost')
         port = int(self.config.get('port', 502))
         log.info('Connecting Modbus TCP {}:{}'.format(host, port))
-        loop = asyncio.get_event_loop()
-        self._client = await loop.run_in_executor(None, lambda: ModbusTcpClient(host, port=port))
-        connected = await loop.run_in_executor(None, self._client.connect)
-        if not connected:
+        if PYMODBUS_V3:
+            self._client = AsyncModbusTcpClient(host, port=port)
+            await self._client.connect()
+            self._connected = self._client.connected
+        else:
+            loop = asyncio.get_event_loop()
+            self._client = ModbusTcpClient(host, port=port)
+            self._connected = await loop.run_in_executor(None, self._client.connect)
+        if not self._connected:
             raise ConnectionError('Failed to connect Modbus TCP {}:{}'.format(host, port))
-        self._connected = True
         log.info('Modbus TCP connected')
 
     async def disconnect(self):
         if self._client:
-            self._client.close()
+            if PYMODBUS_V3:
+                self._client.close()
+            else:
+                self._client.close()
         self._connected = False
 
     async def get_manifest(self):
@@ -121,9 +128,12 @@ class ModbusTCPTransport(TransportPlugin):
         words = TYPE_WORDS.get(dtype, 1)
         scale = float(entry.get('scale', 1.0))
         offset = float(entry.get('offset', 0.0))
-        loop = asyncio.get_event_loop()
-        result = await loop.run_in_executor(None,
-            lambda: self._client.read_holding_registers(reg, count=words, unit=self._unit_id))
+        if PYMODBUS_V3:
+            result = await self._client.read_holding_registers(reg, count=words, slave=self._unit_id)
+        else:
+            loop = asyncio.get_event_loop()
+            result = await loop.run_in_executor(None,
+                lambda: self._client.read_holding_registers(reg, count=words, unit=self._unit_id))
         if result is None or result.isError():
             raise ModbusException('Read error at register {}'.format(reg))
         return _decode(result.registers, dtype) * scale + offset
@@ -143,11 +153,17 @@ class ModbusTCPTransport(TransportPlugin):
         offset = float(entry.get('offset', 0.0))
         raw_val = (float(value) - offset) / scale
         words = _encode(raw_val, dtype)
-        loop = asyncio.get_event_loop()
-        if len(words) == 1:
-            await loop.run_in_executor(None, lambda: self._client.write_register(reg, words[0], unit=self._unit_id))
+        if PYMODBUS_V3:
+            if len(words) == 1:
+                await self._client.write_register(reg, words[0], slave=self._unit_id)
+            else:
+                await self._client.write_registers(reg, words, slave=self._unit_id)
         else:
-            await loop.run_in_executor(None, lambda: self._client.write_registers(reg, words, unit=self._unit_id))
+            loop = asyncio.get_event_loop()
+            if len(words) == 1:
+                await loop.run_in_executor(None, lambda: self._client.write_register(reg, words[0], unit=self._unit_id))
+            else:
+                await loop.run_in_executor(None, lambda: self._client.write_registers(reg, words, unit=self._unit_id))
         return await self._read_register(entry)
 
     async def read_all(self):

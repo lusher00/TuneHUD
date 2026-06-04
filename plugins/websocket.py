@@ -42,8 +42,8 @@ class WebSocketTransport(TransportPlugin):
         raw = await self._ws.recv()
         msg = json.loads(raw)
         if msg.get('type') == 'manifest_resp':
-            self._manifest_cache = msg
-            log.info('Manifest received: {} params'.format(len(msg.get('params', []))))
+            self._manifest_cache = {k: v for k, v in msg.items() if k != 'type'}
+            log.info('Manifest received: {} params'.format(len(self._manifest_cache.get('params', []))))
         self._recv_task = asyncio.ensure_future(self._recv_loop())
 
     async def disconnect(self):
