@@ -1,0 +1,81 @@
+# tunehud_gateway/maps/modbus_example.yaml
+# Register map for an example PLC PID loop
+# All registers are holding registers (function code 3/16)
+
+params:
+  kp:
+    register:  100
+    type:      float32
+    scale:     1.0
+    read_only: false
+    label:     "Proportional gain"
+    units:     null
+    min:       0.0
+    max:       10.0
+    step:      0.01
+    group:     "PID gains"
+
+  ki:
+    register:  102
+    type:      float32
+    scale:     1.0
+    read_only: false
+    label:     "Integral gain"
+    units:     null
+    min:       0.0
+    max:       5.0
+    step:      0.01
+    group:     "PID gains"
+
+  kd:
+    register:  104
+    type:      float32
+    scale:     1.0
+    read_only: false
+    label:     "Derivative gain"
+    units:     null
+    min:       0.0
+    max:       2.0
+    step:      0.001
+    group:     "PID gains"
+
+  setpoint:
+    register:  106
+    type:      float32
+    scale:     1.0
+    read_only: false
+    label:     "Setpoint"
+    units:     "degC"
+    min:       0.0
+    max:       200.0
+    step:      0.5
+    group:     "Control"
+
+  pv:
+    register:  200
+    type:      float32
+    scale:     1.0
+    read_only: true
+    label:     "Process value"
+    units:     "degC"
+    group:     "Control"
+
+  output:
+    register:  202
+    type:      float32
+    scale:     1.0
+    read_only: true
+    label:     "Controller output"
+    units:     "%"
+    min:       0.0
+    max:       100.0
+    group:     "Control"
+
+  error:
+    register:  204
+    type:      float32
+    scale:     1.0
+    read_only: true
+    label:     "Error"
+    units:     "degC"
+    group:     "Control"

@@ -1,0 +1,68 @@
+# tunehud_gateway/maps/serial_example.yaml
+# Parameter map for a microcontroller streaming JSON over UART
+# Device sends: {"kp":1.25,"ki":0.1,"kd":0.05,"setpoint":50.0,"pv":49.8,"output":0.12,"error":0.2}
+# TuneHUD writes: {"name":"kp","value":1.5}
+
+params:
+  kp:
+    read_only: false
+    label:     "Proportional gain"
+    type:      float
+    units:     null
+    min:       0.0
+    max:       20.0
+    step:      0.01
+    group:     "PID gains"
+
+  ki:
+    read_only: false
+    label:     "Integral gain"
+    type:      float
+    units:     null
+    min:       0.0
+    max:       5.0
+    step:      0.01
+    group:     "PID gains"
+
+  kd:
+    read_only: false
+    label:     "Derivative gain"
+    type:      float
+    units:     null
+    min:       0.0
+    max:       2.0
+    step:      0.001
+    group:     "PID gains"
+
+  setpoint:
+    read_only: false
+    label:     "Setpoint"
+    type:      float
+    units:     "degC"
+    min:       0.0
+    max:       200.0
+    step:      0.5
+    group:     "Control"
+
+  pv:
+    read_only: true
+    label:     "Process value"
+    type:      float
+    units:     "degC"
+    group:     "Control"
+
+  output:
+    read_only: true
+    label:     "Controller output"
+    type:      float
+    units:     null
+    min:       -1.0
+    max:       1.0
+    group:     "Control"
+
+  error:
+    read_only: true
+    label:     "Error"
+    type:      float
+    units:     "degC"
+    group:     "Control"

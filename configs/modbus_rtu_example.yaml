@@ -1,0 +1,38 @@
+# tunehud_gateway/configs/modbus_rtu_example.yaml
+# Example: connect to a PLC/instrument over RS485 Modbus RTU
+# Requires USB-RS485 adapter (e.g. Waveshare USB-RS485)
+
+device: "RS485 PLC"
+
+server:
+  host: 0.0.0.0
+  port: 8765
+
+stream:
+  max_hz:     50
+  default_hz: 10
+
+transport:
+  type:     modbus_rtu
+  name:     rs485_plc
+  port:     /dev/ttyUSB0
+  baudrate: 9600
+  parity:   N       # N=none E=even O=odd
+  stopbits: 1
+  bytesize: 8
+  unit_id:  1
+  map:      maps/modbus_example.yaml   # reuse same map as TCP
+
+display:
+  gauges:
+    - param: pv
+      type: gauge
+      min: 0
+      max: 200
+    - param: setpoint
+      type: knob
+      min: 0
+      max: 200
+  plots:
+    - [pv, setpoint]
+    - [error, output]

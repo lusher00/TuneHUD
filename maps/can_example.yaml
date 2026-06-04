@@ -1,0 +1,78 @@
+# tunehud_gateway/maps/can_example.yaml
+# Signal map for an example CAN-based motor controller
+# Frames broadcast by device at 10–100 Hz
+# Write frames sent by TuneHUD to device
+
+params:
+  engine_rpm:
+    can_id:    0x100
+    start_bit: 0
+    length:    16
+    dtype:     uint16
+    scale:     0.25
+    offset:    0.0
+    read_only: true
+    label:     "Engine RPM"
+    units:     "rpm"
+    min:       0
+    max:       8000
+    group:     "Engine"
+
+  throttle_pct:
+    can_id:    0x100
+    start_bit: 16
+    length:    8
+    dtype:     uint8
+    scale:     0.392   # 0-100% over 0-255
+    offset:    0.0
+    read_only: true
+    label:     "Throttle"
+    units:     "%"
+    min:       0
+    max:       100
+    group:     "Engine"
+
+  kp:
+    can_id:    0x200
+    start_bit: 0
+    length:    32
+    dtype:     float32
+    scale:     1.0
+    read_only: false
+    write_id:  0x201    # TuneHUD sends writes to this ID
+    label:     "Velocity Kp"
+    units:     null
+    min:       0.0
+    max:       10.0
+    step:      0.01
+    group:     "PID gains"
+
+  ki:
+    can_id:    0x200
+    start_bit: 32
+    length:    32
+    dtype:     float32
+    scale:     1.0
+    read_only: false
+    write_id:  0x202
+    label:     "Velocity Ki"
+    units:     null
+    min:       0.0
+    max:       5.0
+    step:      0.01
+    group:     "PID gains"
+
+  velocity_setpoint:
+    can_id:    0x201
+    start_bit: 0
+    length:    32
+    dtype:     float32
+    scale:     1.0
+    read_only: false
+    write_id:  0x203
+    label:     "Velocity setpoint"
+    units:     "rpm"
+    min:       -3000.0
+    max:       3000.0
+    step:      10.0
+    group:     "Control"

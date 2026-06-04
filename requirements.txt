@@ -1,0 +1,5 @@
+websockets>=9.0
+pymodbus>=2.5
+pyserial>=3.4
+pyserial-asyncio>=0.5
+pyyaml>=5.0

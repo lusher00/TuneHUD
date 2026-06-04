@@ -1,0 +1,16 @@
+[Unit]
+Description=TuneHUD Gateway
+After=network.target
+
+[Service]
+Type=simple
+User=pi
+WorkingDirectory=/home/pi/tunehud_gateway
+ExecStart=/usr/bin/python3 /home/pi/tunehud_gateway/main.py --config /home/pi/tunehud_gateway/configs/demo.yaml --log-dir /var/log/tunehud
+Restart=always
+RestartSec=5
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target

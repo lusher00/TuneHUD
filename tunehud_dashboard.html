@@ -1,0 +1,865 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
+<title>TuneHUD</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@300;400;500;600&family=IBM+Plex+Sans:wght@300;400;500;600&display=swap" rel="stylesheet">
+<style>
+:root {
+  --bg:      #0A0C0F;
+  --bg1:     #0F1218;
+  --bg2:     #151A22;
+  --bg3:     #1C2330;
+  --border:  #1E2D40;
+  --border2: #2A3A50;
+  --acc:     #00D4AA;
+  --acc2:    #00A882;
+  --acc3:    #007A60;
+  --amber:   #F5A623;
+  --red:     #FF4444;
+  --green:   #44FF88;
+  --blue:    #4488FF;
+  --txt:     #C8D8E8;
+  --txt2:    #5A7A96;
+  --txt3:    #2A4A64;
+  --mono:    'IBM Plex Mono', monospace;
+  --sans:    'IBM Plex Sans', sans-serif;
+  --r:       4px;
+}
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+html,body{height:100%;background:var(--bg);color:var(--txt);font-family:var(--mono);font-size:12px;overflow:hidden}
+
+/* ── Layout ── */
+#app{display:flex;flex-direction:column;height:100vh}
+#topbar{display:flex;align-items:center;gap:0;height:40px;background:var(--bg1);border-bottom:1px solid var(--border);flex-shrink:0;padding:0 12px;gap:8px}
+#main{display:flex;flex:1;overflow:hidden}
+#sidebar{width:220px;background:var(--bg1);border-right:1px solid var(--border);display:flex;flex-direction:column;flex-shrink:0;overflow-y:auto}
+#content{flex:1;overflow:hidden;display:flex;flex-direction:column}
+
+/* ── Topbar ── */
+.logo{font-family:var(--sans);font-weight:600;font-size:15px;color:var(--acc);letter-spacing:0.1em;margin-right:8px}
+.logo span{color:var(--txt2);font-weight:300}
+.sep{width:1px;height:20px;background:var(--border);flex-shrink:0}
+.tb-stat{display:flex;flex-direction:column;align-items:center;min-width:56px}
+.tb-label{font-size:8px;color:var(--txt3);letter-spacing:0.1em;text-transform:uppercase}
+.tb-val{font-size:11px;font-weight:500;color:var(--txt)}
+#conn-badge{display:flex;align-items:center;gap:5px;padding:3px 10px;border-radius:3px;font-size:10px;margin-left:auto;cursor:pointer;border:1px solid var(--border2);background:var(--bg2)}
+#conn-dot{width:6px;height:6px;border-radius:50%;background:var(--txt3);transition:background .3s}
+#conn-dot.on{background:var(--green);box-shadow:0 0 6px var(--green)}
+#conn-dot.off{background:var(--red);animation:blink 1.5s ease-in-out infinite}
+@keyframes blink{0%,100%{opacity:1}50%{opacity:.3}}
+#pkt{font-size:9px;color:var(--txt3);margin-left:4px}
+
+/* ── Sidebar ── */
+.sb-section{padding:10px 12px 4px;font-size:9px;letter-spacing:0.12em;text-transform:uppercase;color:var(--txt3);font-weight:600}
+.sb-param{display:flex;flex-direction:column;padding:7px 12px;cursor:pointer;border-left:2px solid transparent;transition:all .15s}
+.sb-param:hover{background:var(--bg2);border-left-color:var(--border2)}
+.sb-param.active{background:var(--bg2);border-left-color:var(--acc)}
+.sb-pname{font-size:11px;color:var(--txt);font-weight:500}
+.sb-pval{font-size:10px;color:var(--acc);font-weight:600;margin-top:1px}
+.sb-punit{font-size:9px;color:var(--txt3)}
+.sb-group{padding:6px 12px 2px;font-size:8px;letter-spacing:0.1em;text-transform:uppercase;color:var(--txt3);border-top:1px solid var(--border);margin-top:4px}
+
+/* ── Tabs ── */
+#tabs{display:flex;height:34px;background:var(--bg1);border-bottom:1px solid var(--border);flex-shrink:0}
+.tab{flex:0 0 auto;padding:0 16px;display:flex;align-items:center;font-size:10px;letter-spacing:0.08em;text-transform:uppercase;color:var(--txt3);cursor:pointer;border-bottom:2px solid transparent;transition:all .2s;font-weight:500}
+.tab:hover{color:var(--txt2)}
+.tab.active{color:var(--acc);border-bottom-color:var(--acc)}
+
+/* ── Panels ── */
+#panels{flex:1;overflow:hidden;position:relative}
+.panel{position:absolute;inset:0;overflow-y:auto;padding:12px;display:none}
+.panel.active{display:block}
+
+/* ── Cards ── */
+.card{background:var(--bg2);border:1px solid var(--border);border-radius:var(--r);padding:12px;margin-bottom:8px}
+.card-title{font-family:var(--sans);font-size:11px;font-weight:600;color:var(--txt);margin-bottom:10px;letter-spacing:0.04em;display:flex;align-items:center;gap:6px}
+.card-title .badge{font-size:8px;padding:1px 6px;border-radius:2px;background:var(--bg3);color:var(--txt2);font-family:var(--mono)}
+
+/* ── Gauge cluster ── */
+#gauge-wrap{display:grid;grid-template-columns:repeat(auto-fill,minmax(140px,1fr));gap:8px;margin-bottom:8px}
+.gauge-box{background:var(--bg2);border:1px solid var(--border);border-radius:var(--r);padding:10px;text-align:center}
+.gauge-label{font-size:9px;letter-spacing:0.1em;text-transform:uppercase;color:var(--txt3);margin-bottom:4px}
+.gauge-val{font-size:22px;font-weight:600;color:var(--acc);line-height:1.1}
+.gauge-unit{font-size:9px;color:var(--txt3);margin-top:2px}
+.gauge-bar-wrap{height:4px;background:var(--bg3);border-radius:2px;margin-top:6px;overflow:hidden}
+.gauge-bar{height:100%;border-radius:2px;background:var(--acc);transition:width .1s}
+
+/* ── Param editor ── */
+.param-row{display:grid;grid-template-columns:140px 1fr 100px;align-items:center;gap:8px;margin-bottom:6px}
+.param-label{font-size:10px;color:var(--txt2)}
+.param-slider{width:100%;accent-color:var(--acc);height:3px;cursor:pointer}
+.param-ctrl{display:flex;align-items:center;gap:3px}
+.step-btn{width:20px;height:20px;border:1px solid var(--border2);background:var(--bg3);color:var(--txt2);font-size:13px;cursor:pointer;border-radius:3px;display:flex;align-items:center;justify-content:center;transition:background .1s;line-height:1}
+.step-btn:hover{background:var(--border)}
+.val-box{width:56px;background:var(--bg3);border:1px solid var(--border2);border-radius:3px;padding:3px 5px;color:var(--acc);font-family:var(--mono);font-size:11px;font-weight:500;text-align:center;outline:none}
+.val-box:focus{border-color:var(--acc)}
+.ro-val{font-size:12px;font-weight:600;color:var(--txt);font-family:var(--mono)}
+
+/* ── Plots ── */
+#panel-graph{padding:0 !important;display:none !important;flex-direction:column}
+#panel-graph.active{display:flex !important}
+#graph-toolbar{display:flex;align-items:center;gap:8px;padding:7px 12px;background:var(--bg1);border-bottom:1px solid var(--border);flex-shrink:0;flex-wrap:wrap}
+#plots-wrap{flex:1;display:flex;flex-direction:column;overflow:hidden;min-height:0}
+.plot-block{flex:1;display:flex;flex-direction:column;min-height:0;border-bottom:1px solid var(--border)}
+.plot-block:last-child{border-bottom:none}
+.plot-hdr{display:flex;align-items:center;gap:6px;padding:3px 10px;background:var(--bg1);border-bottom:1px solid var(--border);flex-shrink:0;flex-wrap:wrap}
+.plot-hdr .plot-num{font-size:9px;color:var(--txt3);font-weight:600;letter-spacing:.1em}
+.series-chip{display:inline-flex;align-items:center;gap:3px;padding:2px 6px 2px 7px;border-radius:10px;font-size:9px;font-weight:600;cursor:default;border:1px solid rgba(255,255,255,.1)}
+.chip-x{cursor:pointer;opacity:.5;font-size:10px;padding-left:2px}
+.chip-x:hover{opacity:1}
+.add-series-btn{padding:2px 7px;background:transparent;border:1px dashed var(--border2);border-radius:10px;color:var(--txt3);font-size:9px;cursor:pointer}
+.add-series-btn:hover{border-color:var(--acc);color:var(--acc)}
+.rm-plot-btn{margin-left:auto;background:transparent;border:none;color:var(--txt3);font-size:13px;cursor:pointer}
+.rm-plot-btn:hover{color:var(--red)}
+.plot-canvas-wrap{flex:1;position:relative;overflow:hidden;min-height:0}
+.plot-canvas{width:100%;height:100%;display:block}
+.sad{position:absolute;z-index:200;margin-top:2px;background:var(--bg2);border:1px solid var(--border2);border-radius:var(--r);padding:4px;min-width:180px;box-shadow:0 8px 24px rgba(0,0,0,.7);display:none;max-height:240px;overflow-y:auto}
+.sad.open{display:block}
+.sad-grp{font-size:8px;color:var(--txt3);font-weight:600;letter-spacing:.1em;text-transform:uppercase;padding:4px 6px 2px}
+.sad-item{display:flex;align-items:center;gap:7px;padding:4px 8px;cursor:pointer;border-radius:3px;font-size:10px;color:var(--txt2)}
+.sad-item:hover{background:var(--bg3)}
+.sad-item.active{opacity:.4;pointer-events:none}
+.sad-dot{width:6px;height:6px;border-radius:50%;flex-shrink:0}
+
+/* ── Toolbar buttons ── */
+.g-btn{padding:4px 9px;background:var(--bg2);border:1px solid var(--border2);border-radius:var(--r);color:var(--txt2);font-family:var(--mono);font-size:10px;cursor:pointer;white-space:nowrap;transition:all .1s}
+.g-btn:hover{background:var(--border);color:var(--txt)}
+.g-btn.rec{color:var(--red);border-color:var(--red)}
+.g-btn.rec-active{background:var(--red);color:#fff;animation:recpulse 1s ease-in-out infinite}
+@keyframes recpulse{0%,100%{opacity:1}50%{opacity:.6}}
+.g-picker{display:flex;border:1px solid var(--border);border-radius:var(--r);overflow:hidden}
+.g-seg{padding:4px 8px;background:transparent;border:none;border-right:1px solid var(--border);color:var(--txt3);font-family:var(--mono);font-size:10px;cursor:pointer;transition:all .1s}
+.g-seg:last-child{border-right:none}
+.g-seg.active{background:var(--acc3);color:#fff}
+
+/* ── Connect panel ── */
+.field{margin-bottom:10px}
+.field label{display:block;font-size:9px;color:var(--txt3);letter-spacing:.1em;text-transform:uppercase;margin-bottom:4px}
+.field input{width:100%;background:var(--bg3);border:1px solid var(--border2);border-radius:var(--r);padding:8px 10px;color:var(--txt);font-family:var(--mono);font-size:12px;outline:none}
+.field input:focus{border-color:var(--acc)}
+.btn-primary{width:100%;padding:10px;border:none;border-radius:var(--r);cursor:pointer;font-family:var(--sans);font-size:12px;font-weight:600;letter-spacing:.06em;transition:opacity .2s}
+.btn-primary:hover{opacity:.85}
+.btn-connect{background:var(--acc);color:#000;margin-bottom:6px}
+.btn-disconnect{background:var(--bg3);color:var(--txt2);border:1px solid var(--border2)}
+
+/* ── Status / debug ── */
+#debug-out{font-size:10px;color:var(--txt2);white-space:pre-wrap;word-break:break-all;line-height:1.6;background:var(--bg2);border:1px solid var(--border);border-radius:var(--r);padding:10px;min-height:200px;overflow-y:auto}
+.key{color:var(--acc2)}.vnum{color:var(--green)}.vbool{color:var(--amber)}.vstr{color:var(--amber)}
+
+/* ── Scrollbar ── */
+::-webkit-scrollbar{width:4px;height:4px}
+::-webkit-scrollbar-track{background:transparent}
+::-webkit-scrollbar-thumb{background:var(--border2);border-radius:2px}
+
+/* ── Status indicator ── */
+#status-bar{height:24px;background:var(--bg1);border-top:1px solid var(--border);display:flex;align-items:center;padding:0 12px;gap:12px;flex-shrink:0}
+.status-item{font-size:9px;color:var(--txt3);display:flex;align-items:center;gap:4px}
+.status-dot{width:5px;height:5px;border-radius:50%}
+</style>
+</head>
+<body>
+<div id="app">
+
+  <!-- Topbar -->
+  <div id="topbar">
+    <span class="logo">Tune<span>HUD</span></span>
+    <div class="sep"></div>
+    <div class="tb-stat"><span class="tb-label">Device</span><span class="tb-val" id="tb-device">––</span></div>
+    <div class="sep"></div>
+    <div class="tb-stat"><span class="tb-label">Transport</span><span class="tb-val" id="tb-transport">––</span></div>
+    <div class="sep"></div>
+    <div class="tb-stat"><span class="tb-label">Params</span><span class="tb-val" id="tb-params">––</span></div>
+    <div class="sep"></div>
+    <div class="tb-stat"><span class="tb-label">Rate</span><span class="tb-val" id="tb-hz">––</span></div>
+    <div id="conn-badge" onclick="showTab('settings')">
+      <div id="conn-dot" class="off"></div>
+      <span id="conn-label">Offline</span>
+    </div>
+    <span id="pkt">pkts: 0</span>
+  </div>
+
+  <div id="main">
+
+    <!-- Sidebar — param list -->
+    <div id="sidebar">
+      <div class="sb-section">Parameters</div>
+      <div id="param-list"></div>
+    </div>
+
+    <!-- Content -->
+    <div id="content">
+      <div id="tabs">
+        <div class="tab active" data-tab="overview">Overview</div>
+        <div class="tab" data-tab="tune">Tune</div>
+        <div class="tab" data-tab="graph">Graph</div>
+        <div class="tab" data-tab="log">Session Log</div>
+        <div class="tab" data-tab="debug">Debug</div>
+        <div class="tab" data-tab="settings">Settings</div>
+      </div>
+
+      <div id="panels">
+
+        <!-- OVERVIEW -->
+        <div class="panel active" id="panel-overview">
+          <div id="gauge-wrap"></div>
+        </div>
+
+        <!-- TUNE -->
+        <div class="panel" id="panel-tune">
+          <div id="tune-groups"></div>
+        </div>
+
+        <!-- GRAPH -->
+        <div class="panel" id="panel-graph" style="padding:0;display:none;flex-direction:column">
+          <div id="graph-toolbar">
+            <button class="g-btn" onclick="addPlot()" id="add-plot-btn">+ Plot</button>
+            <div class="g-picker" id="ts-picker">
+              <button class="g-seg" onclick="setTs(5)">5s</button>
+              <button class="g-seg" onclick="setTs(15)">15s</button>
+              <button class="g-seg active" onclick="setTs(30)">30s</button>
+              <button class="g-seg" onclick="setTs(60)">60s</button>
+              <button class="g-seg" onclick="setTs(120)">2m</button>
+            </div>
+            <button class="g-btn rec" id="rec-btn" onclick="toggleRec()">⏺ Rec</button>
+            <button class="g-btn" onclick="resetGraph()">Reset</button>
+            <span style="font-size:9px;color:var(--txt3);margin-left:auto" id="rec-status"></span>
+          </div>
+          <div id="plots-wrap"></div>
+        </div>
+
+        <!-- SESSION LOG -->
+        <div class="panel" id="panel-log">
+          <div class="card">
+            <div class="card-title">Session Log</div>
+            <div id="log-info" style="font-size:10px;color:var(--txt2);line-height:1.8">
+              Connect to gateway to see session log info.
+            </div>
+          </div>
+          <div class="card">
+            <div class="card-title">Write History</div>
+            <table id="write-table" style="width:100%;border-collapse:collapse;font-size:10px">
+              <thead>
+                <tr style="color:var(--txt3);text-align:left;border-bottom:1px solid var(--border)">
+                  <th style="padding:4px 8px">Time</th>
+                  <th style="padding:4px 8px">Param</th>
+                  <th style="padding:4px 8px">Previous</th>
+                  <th style="padding:4px 8px">New</th>
+                </tr>
+              </thead>
+              <tbody id="write-tbody"></tbody>
+            </table>
+          </div>
+        </div>
+
+        <!-- DEBUG -->
+        <div class="panel" id="panel-debug">
+          <div class="card">
+            <div class="card-title">Last message <span class="badge" id="debug-pkt">0 pkts</span></div>
+            <div id="debug-out">Waiting for data…</div>
+          </div>
+        </div>
+
+        <!-- SETTINGS -->
+        <div class="panel" id="panel-settings">
+          <div class="card">
+            <div class="card-title">Gateway connection</div>
+            <div class="field"><label>Host</label><input id="cfg-host" value="192.168.1.140"></div>
+            <div class="field"><label>Port</label><input id="cfg-port" value="8765" type="number"></div>
+            <button class="btn-primary btn-connect" onclick="doConnect()">Connect</button>
+            <button class="btn-primary btn-disconnect" onclick="doDisconnect()">Disconnect</button>
+          </div>
+          <div class="card">
+            <div class="card-title">Stream rate</div>
+            <div class="param-row">
+              <span class="param-label">Hz</span>
+              <input type="range" class="param-slider" min="1" max="100" value="20" id="hz-slider"
+                oninput="setStreamHz(this.value)">
+              <div class="param-ctrl">
+                <input class="val-box" id="hz-box" value="20" onchange="setStreamHz(this.value)">
+              </div>
+            </div>
+          </div>
+        </div>
+
+      </div><!-- /panels -->
+
+      <!-- Status bar -->
+      <div id="status-bar">
+        <div class="status-item">
+          <div class="status-dot" id="hw-dot" style="background:var(--txt3)"></div>
+          <span id="hw-status">Hardware: disconnected</span>
+        </div>
+        <div class="status-item" style="margin-left:auto">
+          <span id="stream-rate">–– Hz</span>
+        </div>
+      </div>
+
+    </div><!-- /content -->
+  </div><!-- /main -->
+</div><!-- /app -->
+
+<script>
+'use strict';
+
+// ── State ──────────────────────────────────────────────────────────────────
+const state = {
+  manifest: null,
+  params: {},          // name → descriptor
+  latest: {},          // name → current value
+  pkts: 0,
+  lastPktTime: 0,
+  pktRate: 0,
+  connected: false,
+};
+
+const writeHistory = [];
+
+// ── WebSocket ──────────────────────────────────────────────────────────────
+let ws = null;
+let reconnTimer = null;
+
+function doConnect() {
+  const host = document.getElementById('cfg-host').value.trim();
+  const port = document.getElementById('cfg-port').value.trim();
+  connect(`ws://${host}:${port}`);
+}
+
+function doDisconnect() {
+  clearTimeout(reconnTimer);
+  if (ws) { ws.close(); ws = null; }
+  setConnected(false);
+}
+
+function connect(url) {
+  if (ws) ws.close();
+  ws = new WebSocket(url);
+  ws.onopen = () => {
+    setConnected(true);
+    sendMsg({type: 'manifest_req'});
+    const hz = parseInt(document.getElementById('hz-box').value) || 20;
+    sendMsg({type: 'stream_start', hz});
+    sendMsg({type: 'session_info'});
+  };
+  ws.onclose = ws.onerror = () => {
+    setConnected(false);
+    reconnTimer = setTimeout(() => connect(url), 5000);
+  };
+  ws.onmessage = e => {
+    try { handleMsg(JSON.parse(e.data)); } catch {}
+  };
+}
+
+function sendMsg(obj) {
+  if (ws && ws.readyState === WebSocket.OPEN)
+    ws.send(JSON.stringify(obj));
+}
+
+function setConnected(on) {
+  state.connected = on;
+  document.getElementById('conn-dot').className = on ? 'on' : 'off';
+  document.getElementById('conn-label').textContent = on ? 'Connected' : 'Offline';
+  document.getElementById('hw-dot').style.background = on ? 'var(--green)' : 'var(--txt3)';
+  document.getElementById('hw-status').textContent = on ? 'Hardware: connected' : 'Hardware: disconnected';
+}
+
+// ── Message handling ───────────────────────────────────────────────────────
+function handleMsg(msg) {
+  if (msg.type === 'manifest_resp') {
+    state.manifest = msg;
+    state.params = {};
+    for (const p of msg.params || []) state.params[p.name] = p;
+    buildUI();
+    document.getElementById('tb-device').textContent = msg.device || '––';
+    document.getElementById('tb-transport').textContent = msg.transport || '––';
+    document.getElementById('tb-params').textContent = (msg.params||[]).length;
+  }
+  else if (msg.type === 'stream_data') {
+    const now = performance.now();
+    if (state.lastPktTime) {
+      const dt = (now - state.lastPktTime) / 1000;
+      state.pktRate = state.pktRate * 0.9 + (1/dt) * 0.1;
+    }
+    state.lastPktTime = now;
+    state.pkts++;
+    Object.assign(state.latest, msg.data || {});
+    appendGraphData(msg.t, msg.data || {});
+    updateUI(msg);
+  }
+  else if (msg.type === 'write_ack') {
+    state.latest[msg.name] = msg.value;
+    addWriteHistory(msg.t, msg.name, msg.value);
+  }
+  else if (msg.type === 'session_info') {
+    document.getElementById('log-info').innerHTML =
+      `<b>Stream:</b> ${msg.stream_file || '––'}<br><b>Writes:</b> ${msg.writes_file || '––'}`;
+  }
+  else if (msg.type === 'error') {
+    console.warn('Gateway error:', msg.message);
+  }
+  updateDebug(msg);
+}
+
+// ── UI builders ────────────────────────────────────────────────────────────
+function buildUI() {
+  const manifest = state.manifest;
+  if (!manifest) return;
+  buildSidebar();
+  buildGauges();
+  buildTunePanel();
+  buildDefaultPlots();
+}
+
+function buildSidebar() {
+  const el = document.getElementById('param-list');
+  el.innerHTML = '';
+  const groups = {};
+  for (const p of state.manifest.params || []) {
+    const g = p.group || 'General';
+    if (!groups[g]) groups[g] = [];
+    groups[g].push(p);
+  }
+  for (const [g, params] of Object.entries(groups)) {
+    const hdr = document.createElement('div');
+    hdr.className = 'sb-group';
+    hdr.textContent = g;
+    el.appendChild(hdr);
+    for (const p of params) {
+      const row = document.createElement('div');
+      row.className = 'sb-param';
+      row.id = `sb-${p.name}`;
+      row.innerHTML = `<div class="sb-pname">${p.label}</div><div><span class="sb-pval" id="sbv-${p.name}">––</span> <span class="sb-punit">${p.units||''}</span></div>`;
+      el.appendChild(row);
+    }
+  }
+}
+
+function buildGauges() {
+  const wrap = document.getElementById('gauge-wrap');
+  wrap.innerHTML = '';
+  for (const p of state.manifest.params || []) {
+    const div = document.createElement('div');
+    div.className = 'gauge-box';
+    div.id = `gauge-${p.name}`;
+    const hasRange = p.min != null && p.max != null;
+    div.innerHTML = `
+      <div class="gauge-label">${p.label}${p.units ? ' · '+p.units : ''}</div>
+      <div class="gauge-val" id="gv-${p.name}">––</div>
+      ${hasRange ? `<div class="gauge-bar-wrap"><div class="gauge-bar" id="gb-${p.name}" style="width:0%"></div></div>` : ''}
+    `;
+    wrap.appendChild(div);
+  }
+}
+
+function buildTunePanel() {
+  const wrap = document.getElementById('tune-groups');
+  wrap.innerHTML = '';
+  const groups = {};
+  for (const p of state.manifest.params || []) {
+    const g = p.group || 'General';
+    if (!groups[g]) groups[g] = [];
+    groups[g].push(p);
+  }
+  for (const [g, params] of Object.entries(groups)) {
+    const card = document.createElement('div');
+    card.className = 'card';
+    let html = `<div class="card-title">${g}</div>`;
+    for (const p of params) {
+      const val = state.latest[p.name] ?? 0;
+      if (p.read_only) {
+        html += `<div class="param-row">
+          <span class="param-label">${p.label}${p.units?' ('+p.units+')':''}</span>
+          <div></div>
+          <span class="ro-val" id="ro-${p.name}">${fmt(val)}</span>
+        </div>`;
+      } else {
+        const min = p.min ?? 0, max = p.max ?? 100, step = p.step ?? 0.01;
+        html += `<div class="param-row">
+          <span class="param-label">${p.label}${p.units?' ('+p.units+')':''}</span>
+          <input type="range" class="param-slider" id="sl-${p.name}"
+            min="${min}" max="${max}" step="${step}" value="${val}"
+            oninput="onSlider('${p.name}',this.value)">
+          <div class="param-ctrl">
+            <button class="step-btn" onclick="stepParam('${p.name}',-1)">−</button>
+            <input class="val-box" id="vb-${p.name}" value="${fmt(val)}"
+              onchange="onValBox('${p.name}',this.value)"
+              onblur="onValBox('${p.name}',this.value)">
+            <button class="step-btn" onclick="stepParam('${p.name}',1)">+</button>
+          </div>
+        </div>`;
+      }
+    }
+    card.innerHTML = html;
+    wrap.appendChild(card);
+  }
+}
+
+// ── Live updates ───────────────────────────────────────────────────────────
+function updateUI(msg) {
+  const data = msg.data || {};
+  document.getElementById('pkt').textContent = `pkts: ${state.pkts}`;
+  document.getElementById('tb-hz').textContent = state.pktRate > 0 ? state.pktRate.toFixed(0)+' Hz' : '––';
+  document.getElementById('stream-rate').textContent = state.pktRate > 0 ? state.pktRate.toFixed(1)+' Hz' : '–– Hz';
+
+  for (const [name, val] of Object.entries(data)) {
+    const p = state.params[name];
+    const fv = fmt(val);
+
+    // Sidebar
+    const sbv = document.getElementById(`sbv-${name}`);
+    if (sbv) sbv.textContent = fv;
+
+    // Gauge
+    const gv = document.getElementById(`gv-${name}`);
+    if (gv) gv.textContent = fv;
+    if (p && p.min != null && p.max != null) {
+      const gb = document.getElementById(`gb-${name}`);
+      if (gb) {
+        const pct = Math.max(0, Math.min(100, (val - p.min) / (p.max - p.min) * 100));
+        gb.style.width = pct + '%';
+        gb.style.background = pct > 85 ? 'var(--red)' : pct > 65 ? 'var(--amber)' : 'var(--acc)';
+      }
+    }
+
+    // Read-only tune panel
+    const ro = document.getElementById(`ro-${name}`);
+    if (ro) ro.textContent = fv;
+  }
+}
+
+// ── Param write ────────────────────────────────────────────────────────────
+function onSlider(name, raw) {
+  const v = parseFloat(raw);
+  const p = state.params[name];
+  const decimals = p ? Math.max(0, Math.ceil(-Math.log10(p.step || 0.01))) : 2;
+  const vb = document.getElementById(`vb-${name}`);
+  if (vb) vb.value = v.toFixed(decimals);
+  sendMsg({type: 'param_write', name, value: v});
+}
+
+function onValBox(name, raw) {
+  const v = parseFloat(raw);
+  if (isNaN(v)) return;
+  const sl = document.getElementById(`sl-${name}`);
+  if (sl) sl.value = v;
+  sendMsg({type: 'param_write', name, value: v});
+}
+
+function stepParam(name, dir) {
+  const p = state.params[name];
+  if (!p) return;
+  const step = p.step || 0.01;
+  const cur = state.latest[name] ?? 0;
+  let v = Math.round((cur + dir * step) * 1e6) / 1e6;
+  if (p.min != null) v = Math.max(p.min, v);
+  if (p.max != null) v = Math.min(p.max, v);
+  const decimals = Math.max(0, Math.ceil(-Math.log10(step)));
+  const sl = document.getElementById(`sl-${name}`);
+  const vb = document.getElementById(`vb-${name}`);
+  if (sl) sl.value = v;
+  if (vb) vb.value = v.toFixed(decimals);
+  sendMsg({type: 'param_write', name, value: v});
+}
+
+function setStreamHz(val) {
+  const hz = Math.max(1, Math.min(100, parseInt(val) || 20));
+  document.getElementById('hz-slider').value = hz;
+  document.getElementById('hz-box').value = hz;
+  sendMsg({type: 'stream_start', hz});
+}
+
+function addWriteHistory(t, name, val) {
+  const p = state.params[name];
+  writeHistory.unshift({t, name, label: p?.label || name, val});
+  if (writeHistory.length > 200) writeHistory.pop();
+  const tbody = document.getElementById('write-tbody');
+  const ts = new Date(t * 1000).toLocaleTimeString();
+  const tr = document.createElement('tr');
+  tr.style.borderBottom = '1px solid var(--border)';
+  tr.innerHTML = `
+    <td style="padding:3px 8px;color:var(--txt3)">${ts}</td>
+    <td style="padding:3px 8px;color:var(--acc)">${p?.label || name}</td>
+    <td style="padding:3px 8px;color:var(--txt3)">${fmt(state.latest[name])}</td>
+    <td style="padding:3px 8px;color:var(--txt)">${fmt(val)}</td>
+  `;
+  tbody.insertBefore(tr, tbody.firstChild);
+  if (tbody.children.length > 50) tbody.removeChild(tbody.lastChild);
+}
+
+// ── Graph ──────────────────────────────────────────────────────────────────
+let windowSec = 30;
+const MAX_PTS = 1000;
+const L = 44, R = 8, B = 18, T = 4;
+
+const COLORS = ['#00D4AA','#F5A623','#4488FF','#FF4444','#44FF88','#BB44FF','#FF8844','#44CCFF'];
+const bufs = {};   // name → [{t,v}]
+let t0 = null;
+
+function appendGraphData(t, data) {
+  if (t0 === null) t0 = t;
+  const cutoff = t - windowSec;
+  for (const [name, val] of Object.entries(data)) {
+    if (!bufs[name]) bufs[name] = [];
+    bufs[name].push({t, v: val});
+    while (bufs[name].length && bufs[name][0].t < cutoff) bufs[name].shift();
+    if (bufs[name].length > MAX_PTS) bufs[name].splice(0, bufs[name].length - MAX_PTS);
+  }
+  if (recording) {
+    recBuf.push({t, ...data});
+  }
+}
+
+let plots = [];
+let nextPid = 0;
+
+function buildDefaultPlots() {
+  const names = Object.keys(state.params);
+  plots = [];
+  if (names.length > 0) plots.push({id: nextPid++, series: [names[0]]});
+  if (names.length > 1) plots.push({id: nextPid++, series: [names[1]]});
+  rebuildPlots();
+}
+
+function rebuildPlots() {
+  const wrap = document.getElementById('plots-wrap');
+  wrap.innerHTML = '';
+  plots.forEach((plot, pi) => {
+    const block = document.createElement('div');
+    block.className = 'plot-block';
+    block.id = 'pb-'+plot.id;
+    let hdrHtml = `<div class="plot-hdr"><span class="plot-num">PLOT ${pi+1}</span>`;
+    plot.series.forEach((name, si) => {
+      const col = COLORS[si % COLORS.length];
+      const label = state.params[name]?.label || name;
+      hdrHtml += `<span class="series-chip" style="background:${col}22;border-color:${col}55;color:${col}">
+        ${label}<span class="chip-x" onclick="removeSeries(${plot.id},'${name}')">×</span>
+      </span>`;
+    });
+    const addWrapId = 'aw-'+plot.id;
+    hdrHtml += `<div style="position:relative" id="${addWrapId}">
+      <button class="add-series-btn" onclick="toggleSad(${plot.id})">+ series</button>
+      <div class="sad" id="sad-${plot.id}"></div>
+    </div>`;
+    if (plots.length > 1) hdrHtml += `<button class="rm-plot-btn" onclick="removePlot(${plot.id})">×</button>`;
+    hdrHtml += '</div>';
+    block.innerHTML = hdrHtml + `<div class="plot-canvas-wrap"><canvas class="plot-canvas" id="pc-${plot.id}"></canvas></div>`;
+    wrap.appendChild(block);
+    buildSad(plot.id);
+  });
+  document.getElementById('add-plot-btn').disabled = plots.length >= 4;
+}
+
+function buildSad(pid) {
+  const sad = document.getElementById('sad-'+pid);
+  if (!sad || !state.manifest) return;
+  sad.innerHTML = '';
+  const groups = {};
+  for (const p of state.manifest.params || []) {
+    const g = p.group || 'General';
+    if (!groups[g]) groups[g] = [];
+    groups[g].push(p);
+  }
+  Object.entries(groups).forEach(([g, params]) => {
+    const grpEl = document.createElement('div');
+    grpEl.className = 'sad-grp';
+    grpEl.textContent = g;
+    sad.appendChild(grpEl);
+    params.forEach((p, i) => {
+      const plot = plots.find(pl => pl.id === pid);
+      const active = plot && plot.series.includes(p.name);
+      const col = COLORS[i % COLORS.length];
+      const item = document.createElement('div');
+      item.className = 'sad-item' + (active ? ' active' : '');
+      item.innerHTML = `<span class="sad-dot" style="background:${col}"></span>${p.label}`;
+      item.onclick = () => { addSeries(pid, p.name); closeSads(); };
+      sad.appendChild(item);
+    });
+  });
+}
+
+function toggleSad(pid) {
+  const el = document.getElementById('sad-'+pid);
+  const was = el.classList.contains('open');
+  closeSads();
+  if (!was) el.classList.add('open');
+}
+function closeSads() { document.querySelectorAll('.sad').forEach(e => e.classList.remove('open')); }
+document.addEventListener('click', e => { if (!e.target.closest('.add-series-btn') && !e.target.closest('.sad')) closeSads(); });
+
+function addSeries(pid, name) {
+  const p = plots.find(pl => pl.id === pid);
+  if (p && !p.series.includes(name)) { p.series.push(name); rebuildPlots(); }
+}
+function removeSeries(pid, name) {
+  const p = plots.find(pl => pl.id === pid);
+  if (p) { p.series = p.series.filter(n => n !== name); rebuildPlots(); }
+}
+function addPlot() {
+  if (plots.length >= 4) return;
+  plots.push({id: nextPid++, series: []});
+  rebuildPlots();
+}
+function removePlot(pid) {
+  if (plots.length <= 1) return;
+  plots = plots.filter(p => p.id !== pid);
+  rebuildPlots();
+}
+function setTs(s) {
+  windowSec = s;
+  document.querySelectorAll('#ts-picker .g-seg').forEach(b =>
+    b.classList.toggle('active', parseInt(b.textContent) === s || b.textContent === s+'m' || (s===120&&b.textContent==='2m')));
+}
+function resetGraph() { for (const k in bufs) bufs[k] = []; t0 = null; }
+
+// ── Recording ──────────────────────────────────────────────────────────────
+let recording = false, recBuf = [];
+
+function toggleRec() {
+  if (recording) { recording = false; saveCSV(); recBuf = []; }
+  else { recording = true; recBuf = []; }
+  const btn = document.getElementById('rec-btn');
+  btn.className = 'g-btn ' + (recording ? 'rec-active' : 'rec');
+  btn.textContent = recording ? '⏹ Stop' : '⏺ Rec';
+  document.getElementById('rec-status').textContent = recording ? 'Recording…' : '';
+}
+
+function saveCSV() {
+  if (!recBuf.length) return;
+  const keys = Object.keys(recBuf[0]).filter(k => k !== 't');
+  let csv = ['t', ...keys].join(',') + '\n';
+  for (const row of recBuf)
+    csv += [row.t.toFixed(3), ...keys.map(k => (row[k] ?? 0).toFixed(4))].join(',') + '\n';
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(new Blob([csv], {type:'text/csv'}));
+  a.download = 'tunehud_' + Date.now() + '.csv';
+  a.click();
+}
+
+// ── Graph drawing ──────────────────────────────────────────────────────────
+function niceGrid(lo, hi, n) {
+  const span = hi - lo; if (span <= 0) return [];
+  const raw = span / n;
+  const mag = Math.pow(10, Math.floor(Math.log10(raw)));
+  const step = ([1,2,2.5,5,10].find(s => s*mag >= raw) || 10) * mag;
+  const vals = []; let v = Math.ceil(lo/step)*step;
+  while (v <= hi + step*.01) { vals.push(v); v += step; }
+  return vals;
+}
+function fmtA(v) {
+  const a = Math.abs(v);
+  if (a >= 10000) return (v/1000).toFixed(0)+'k';
+  if (a >= 100) return v.toFixed(0);
+  if (a >= 1) return v.toFixed(1);
+  return v.toFixed(2);
+}
+
+function drawAllPlots() {
+  const panel = document.getElementById('panel-graph');
+  if (panel.style.display === 'none') return;
+  const tNow = performance.now()/1000 - (t0 || 0) + (t0 || performance.now()/1000);
+  const tMax = Math.max(...Object.values(bufs).flatMap(b => b.map(p => p.t)), 0) || performance.now()/1000;
+  const tMin = tMax - windowSec;
+
+  plots.forEach((plot, pi) => {
+    const cv = document.getElementById('pc-'+plot.id);
+    if (!cv) return;
+    const dpr = window.devicePixelRatio || 1;
+    const W = cv.parentElement.clientWidth, H = cv.parentElement.clientHeight;
+    if (W < 10 || H < 10) return;
+    if (cv.width !== W*dpr || cv.height !== H*dpr) {
+      cv.width = W*dpr; cv.height = H*dpr;
+      cv.style.width = W+'px'; cv.style.height = H+'px';
+    }
+    const ctx = cv.getContext('2d');
+    ctx.setTransform(dpr,0,0,dpr,0,0);
+    ctx.clearRect(0,0,W,H);
+    ctx.fillStyle = '#0A0C0F'; ctx.fillRect(0,0,W,H);
+    const PW = W-L-R, PH = H-T-B;
+    const last = pi === plots.length-1;
+    let allV = [];
+    plot.series.forEach(name => (bufs[name]||[]).filter(p=>p.t>=tMin).forEach(p=>allV.push(p.v)));
+    const rMin = allV.length ? Math.min(...allV) : -1;
+    const rMax = allV.length ? Math.max(...allV) : 1;
+    const span = Math.max(rMax-rMin, 0.001);
+    const yMin = rMin - span*.1, yMax = rMax + span*.1, ySpan = yMax-yMin;
+    const px = t => L + (t-tMin)/windowSec*PW;
+    const py = v => T + (1-(v-yMin)/ySpan)*PH;
+    const cy = y => Math.max(T, Math.min(T+PH, y));
+    ctx.font = `9px 'IBM Plex Mono',monospace`;
+    niceGrid(yMin,yMax,5).forEach(gv => {
+      const gy = py(gv);
+      if (gy < T-.5 || gy > T+PH+.5) return;
+      const isZ = Math.abs(gv) < ySpan*.01;
+      ctx.beginPath(); ctx.moveTo(L,gy); ctx.lineTo(L+PW,gy);
+      ctx.strokeStyle = isZ ? 'rgba(0,212,170,.35)' : 'rgba(42,58,80,.5)';
+      ctx.lineWidth = isZ ? 1 : .5; ctx.setLineDash(isZ?[]:[4,4]); ctx.stroke(); ctx.setLineDash([]);
+      ctx.fillStyle = '#2A4A64'; ctx.textAlign='right'; ctx.textBaseline='middle';
+      ctx.fillText(fmtA(gv), L-3, gy);
+    });
+    // x labels
+    if (last) {
+      for (let xg = Math.ceil(tMin/5)*5; xg <= tMax+.01; xg+=5) {
+        const gx = px(xg);
+        if (gx<L-.5 || gx>L+PW+.5) continue;
+        ctx.beginPath(); ctx.moveTo(gx,T); ctx.lineTo(gx,T+PH);
+        ctx.strokeStyle='rgba(42,58,80,.3)'; ctx.lineWidth=.5; ctx.setLineDash([4,4]); ctx.stroke(); ctx.setLineDash([]);
+        const age = Math.round(tMax-xg);
+        ctx.fillStyle='#2A4A64'; ctx.textAlign='center'; ctx.textBaseline='middle';
+        ctx.fillText(age===0?'now':'-'+age+'s', gx, H-B/2);
+      }
+    }
+    ctx.strokeStyle='rgba(42,58,80,.5)'; ctx.lineWidth=.5; ctx.strokeRect(L,T,PW,PH);
+    plot.series.forEach((name, si) => {
+      const pts = (bufs[name]||[]).filter(p=>p.t>=tMin-.1);
+      if (pts.length < 2) return;
+      ctx.beginPath(); let started=false;
+      pts.forEach(p => { const x=px(p.t), y=cy(py(p.v)); if(!started){ctx.moveTo(x,y);started=true;}else ctx.lineTo(x,y); });
+      ctx.strokeStyle = COLORS[si%COLORS.length]; ctx.lineWidth=1.5; ctx.stroke();
+    });
+  });
+}
+
+// ── Debug ──────────────────────────────────────────────────────────────────
+function updateDebug(d) {
+  document.getElementById('debug-pkt').textContent = state.pkts+' pkts';
+  document.getElementById('debug-out').innerHTML =
+    JSON.stringify(d, null, 2)
+      .replace(/("[\w_]+"):/g,'<span class="key">$1</span>:')
+      .replace(/: (true|false)/g,': <span class="vbool">$1</span>')
+      .replace(/: (-?\d+\.?\d*)/g,': <span class="vnum">$1</span>')
+      .replace(/: "([^"]*)"/g,': <span class="vstr">"$1"</span>');
+}
+
+// ── Tabs ───────────────────────────────────────────────────────────────────
+function showTab(name) {
+  document.querySelectorAll('.tab').forEach(t => t.classList.toggle('active', t.dataset.tab===name));
+  document.querySelectorAll('.panel').forEach(p => {
+    const match = p.id==='panel-'+name;
+    p.classList.toggle('active', match);
+    if (p.id==='panel-graph') p.style.display = match ? 'flex' : 'none';
+  });
+  if (name==='graph') rebuildPlots();
+}
+document.querySelectorAll('.tab').forEach(t => t.addEventListener('click', () => showTab(t.dataset.tab)));
+
+// ── Utils ──────────────────────────────────────────────────────────────────
+function fmt(v) {
+  if (v == null) return '––';
+  const n = parseFloat(v);
+  if (isNaN(n)) return String(v);
+  if (Math.abs(n) >= 1000) return n.toFixed(0);
+  if (Math.abs(n) >= 100)  return n.toFixed(1);
+  if (Math.abs(n) >= 10)   return n.toFixed(2);
+  return n.toFixed(3);
+}
+
+// ── RAF loop ───────────────────────────────────────────────────────────────
+(function loop(){ drawAllPlots(); requestAnimationFrame(loop); })();
+
+// Auto-connect
+doConnect();
+</script>
+</body>
+</html>

@@ -1,0 +1,34 @@
+# tunehud_gateway/configs/modbus_example.yaml
+# Example: connect to a Modbus TCP PLC
+
+device: "Example PLC"
+
+server:
+  host: 0.0.0.0
+  port: 8765
+
+stream:
+  max_hz:     100
+  default_hz: 10
+
+transport:
+  type:    modbus_tcp
+  name:    example_plc
+  host:    192.168.1.50
+  port:    502
+  unit_id: 1
+  map:     maps/modbus_example.yaml
+
+display:
+  gauges:
+    - param: pv
+      type: gauge
+      min: 0
+      max: 100
+    - param: setpoint
+      type: knob
+      min: 0
+      max: 100
+  plots:
+    - [pv, setpoint]
+    - [error, output]

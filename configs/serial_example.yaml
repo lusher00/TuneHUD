@@ -1,0 +1,34 @@
+# tunehud_gateway/configs/serial_example.yaml
+# Example: connect to a microcontroller sending JSON over UART
+
+device: "Custom MCU Controller"
+
+server:
+  host: 0.0.0.0
+  port: 8765
+
+stream:
+  max_hz:     100
+  default_hz: 50
+
+transport:
+  type:         serial
+  name:         my_mcu
+  port:         /dev/ttyUSB0
+  baudrate:     115200
+  frame_format: json     # json | csv
+  map:          maps/serial_example.yaml
+
+display:
+  gauges:
+    - param: pv
+      type: gauge
+      min: 0
+      max: 100
+    - param: output
+      type: bar
+      min: -1
+      max: 1
+  plots:
+    - [pv, setpoint]
+    - [error, output]
