@@ -7,64 +7,75 @@ from typing import Optional, List
 @dataclass
 class StreamConfig:
     max_hz:     int = 100
-    default_hz: int = 50
+    default_hz: int = 20
 
 
 @dataclass
 class ServerConfig:
-    host: str = '0.0.0.0'
-    port: int = 8765
+    host:           str  = '0.0.0.0'
+    port:           int  = 8765
+    serve_dashboard: bool = True   # serve tunehud_dashboard.html from gateway
 
 
 @dataclass
-class TransportConfig:
-    type:    str
-    name:    str = ''
+class ControllerConfig:
+    """One transport/device connection."""
+    name:    str
+    type:    str                        # websocket | modbus_tcp | modbus_rtu | serial
     options: dict = field(default_factory=dict)
     map:     Optional[str] = None
 
-
-@dataclass
-class GaugeConfig:
-    param:     str
-    type:      str = 'numeric'
-    min:       Optional[float] = None
-    max:       Optional[float] = None
-
-
-@dataclass
-class DisplayConfig:
-    gauges: List[GaugeConfig] = field(default_factory=list)
-    plots:  List[List[str]] = field(default_factory=list)
+    # Display hints for gauge cluster
+    gauges:  List[dict] = field(default_factory=list)
 
 
 @dataclass
 class GatewayConfig:
-    device:    str
-    stream:    StreamConfig
-    server:    ServerConfig
-    transport: TransportConfig
-    display:   DisplayConfig
+    title:       str
+    stream:      StreamConfig
+    server:      ServerConfig
+    controllers: List[ControllerConfig]
 
 
 def load_config(path):
     with open(path) as f:
         raw = yaml.safe_load(f)
+
     stream = StreamConfig(**raw.get('stream', {}))
-    server = ServerConfig(**raw.get('server', {}))
-    t = raw.get('transport', {})
-    transport = TransportConfig(
-        type=t['type'],
-        name=t.get('name', t['type']),
-        options={k: v for k, v in t.items() if k not in ('type', 'name', 'map')},
-        map=t.get('map'),
-    )
-    d = raw.get('display', {})
-    gauges = [GaugeConfig(**g) for g in d.get('gauges', [])]
-    display = DisplayConfig(gauges=gauges, plots=d.get('plots', []))
+    server_raw = raw.get('server', {})
+    server = ServerConfig(**server_raw)
+
+    controllers = []
+    for c in raw.get('controllers', []):
+        gauges = c.pop('gauges', [])
+        map_path = c.pop('map', None)
+        name = c.pop('name')
+        ctype = c.pop('type')
+        controllers.append(ControllerConfig(
+            name=name,
+            type=ctype,
+            options=c,
+            map=map_path,
+            gauges=gauges,
+        ))
+
+    # Legacy single-transport support
+    if not controllers and 'transport' in raw:
+        t = raw['transport']
+        gauges = t.pop('gauges', [])
+        map_path = t.pop('map', None)
+        name = t.pop('name', t.get('type', 'device'))
+        ctype = t.pop('type')
+        controllers.append(ControllerConfig(
+            name=name, type=ctype, options=t,
+            map=map_path, gauges=gauges,
+        ))
+
     return GatewayConfig(
-        device=raw.get('device', 'Unknown Device'),
-        stream=stream, server=server, transport=transport, display=display,
+        title=raw.get('title', raw.get('device', 'TuneHUD')),
+        stream=stream,
+        server=server,
+        controllers=controllers,
     )
 
 

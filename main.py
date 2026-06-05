@@ -1,11 +1,10 @@
 """
 tunehud_gateway/main.py
-TuneHUD Gateway — Python 3.7, websockets 9-11 compatible.
+TuneHUD Gateway — multi-controller, serves dashboard, Python 3.7+
 
 Usage:
-  python3 main.py --config configs/demo.yaml
-  python3 main.py --config configs/demo.yaml --verbose
-  python3 main.py --config configs/demo.yaml --no-log
+  python main.py --config configs/demo.yaml
+  python main.py --config configs/multi.yaml --verbose
 """
 from __future__ import annotations
 import asyncio
@@ -16,10 +15,15 @@ import argparse
 import os
 import sys
 import time
+import mimetypes
 from datetime import datetime
 from pathlib import Path
 
 import websockets
+try:
+    from websockets.legacy.server import WebSocketServerProtocol
+except ImportError:
+    from websockets.server import WebSocketServerProtocol
 
 sys.path.insert(0, os.path.dirname(__file__))
 
@@ -28,6 +32,10 @@ from plugins import get_plugin
 
 log = logging.getLogger('tunehud.gateway')
 
+DASHBOARD_FILE = os.path.join(os.path.dirname(__file__), 'tunehud_dashboard.html')
+
+
+# ── Session logger ─────────────────────────────────────────────────────────
 
 class SessionLogger:
     def __init__(self, log_dir):
@@ -48,15 +56,15 @@ class SessionLogger:
         self._stream_file = open(str(self._stream_path), 'w', newline='')
         self._writes_file = open(str(self._writes_path), 'w', newline='')
         self._writes_writer = csv.writer(self._writes_file)
-        self._writes_writer.writerow(['t', 'name', 'prev_value', 'new_value', 'client'])
+        self._writes_writer.writerow(['t', 'controller', 'name', 'prev_value', 'new_value', 'client'])
         self._writes_file.flush()
 
-    def init_stream_header(self, param_names):
+    def init_stream_header(self, keys):
         if self._stream_header_written or not self._stream_file:
             return
-        self._stream_keys = param_names
+        self._stream_keys = keys
         self._stream_writer = csv.writer(self._stream_file)
-        self._stream_writer.writerow(['t'] + param_names)
+        self._stream_writer.writerow(['t'] + keys)
         self._stream_file.flush()
         self._stream_header_written = True
 
@@ -67,10 +75,10 @@ class SessionLogger:
             ['{:.3f}'.format(t)] + [str(data.get(k, '')) for k in self._stream_keys])
         self._stream_file.flush()
 
-    def log_write(self, t, name, prev, new, client):
+    def log_write(self, t, controller, name, prev, new, client):
         if not self._writes_writer:
             return
-        self._writes_writer.writerow(['{:.3f}'.format(t), name, prev, new, client])
+        self._writes_writer.writerow(['{:.3f}'.format(t), controller, name, prev, new, client])
         self._writes_file.flush()
 
     def close(self):
@@ -80,28 +88,51 @@ class SessionLogger:
             self._writes_file.close()
 
 
+# ── Gateway ────────────────────────────────────────────────────────────────
+
 class TuneHUDGateway:
     def __init__(self, config, log_dir=None):
         self.cfg = config
-        self.plugin = get_plugin(
-            config.transport.type,
-            dict(list(config.transport.options.items()) + [
-                ('name', config.transport.name),
-                ('device', config.device),
-                ('map', config.transport.map),
-            ]),
-        )
         self._clients = set()
-        self._manifest = {}
         self._stream_hz = min(config.stream.default_hz, config.stream.max_hz)
         self._logger = SessionLogger(log_dir) if log_dir else None
-        self._last_values = {}
+        self._last_values = {}   # controller.param -> value
+
+        # One plugin per controller
+        self._plugins = {}
+        self._manifests = {}
+        for c in config.controllers:
+            plugin_cfg = dict(list(c.options.items()) + [
+                ('name', c.name),
+                ('device', c.name),
+                ('map', c.map),
+            ])
+            self._plugins[c.name] = get_plugin(c.type, plugin_cfg)
+
+    def _combined_manifest(self):
+        """Build combined manifest from all connected controllers."""
+        controllers = []
+        for name, manifest in self._manifests.items():
+            cfg = next((c for c in self.cfg.controllers if c.name == name), None)
+            controllers.append({
+                'name':    name,
+                'device':  manifest.get('device', name),
+                'transport': manifest.get('transport', ''),
+                'params':  manifest.get('params', []),
+                'gauges':  cfg.gauges if cfg else [],
+            })
+        return {
+            'type':        'manifest_resp',
+            'title':       self.cfg.title,
+            'controllers': controllers,
+        }
 
     async def _register(self, ws):
         self._clients.add(ws)
-        log.info('Client connected: {} ({} total)'.format(ws.remote_address, len(self._clients)))
-        if self._manifest:
-            await ws.send(json.dumps(dict({'type': 'manifest_resp'}, **self._manifest)))
+        log.info('Client connected: {} ({} total)'.format(
+            ws.remote_address, len(self._clients)))
+        if self._manifests:
+            await ws.send(json.dumps(self._combined_manifest()))
 
     async def _unregister(self, ws):
         self._clients.discard(ws)
@@ -111,13 +142,12 @@ class TuneHUDGateway:
         try:
             msg = json.loads(raw)
         except Exception:
-            await ws.send(json.dumps({'type': 'error', 'message': 'Invalid JSON'}))
             return
 
         mtype = msg.get('type')
 
         if mtype == 'manifest_req':
-            await ws.send(json.dumps(dict({'type': 'manifest_resp'}, **self._manifest)))
+            await ws.send(json.dumps(self._combined_manifest()))
 
         elif mtype == 'stream_start':
             hz = min(int(msg.get('hz', self._stream_hz)), self.cfg.stream.max_hz)
@@ -125,12 +155,20 @@ class TuneHUDGateway:
             log.info('Stream rate: {} Hz'.format(hz))
 
         elif mtype == 'param_write':
-            name  = msg.get('name')
-            value = msg.get('value')
-            if name is None or value is None:
-                await ws.send(json.dumps({'type': 'error', 'message': 'param_write requires name and value'}))
+            controller = msg.get('controller')
+            name       = msg.get('name')
+            value      = msg.get('value')
+            if not controller or not name or value is None:
+                await ws.send(json.dumps({'type': 'error', 'message': 'param_write requires controller, name, value'}))
                 return
-            params = {p['name']: p for p in self._manifest.get('params', [])}
+
+            plugin = self._plugins.get(controller)
+            manifest = self._manifests.get(controller, {})
+            if not plugin:
+                await ws.send(json.dumps({'type': 'error', 'message': 'Unknown controller: {}'.format(controller)}))
+                return
+
+            params = {p['name']: p for p in manifest.get('params', [])}
             descriptor = params.get(name)
             if not descriptor:
                 await ws.send(json.dumps({'type': 'error', 'name': name, 'message': 'Unknown param: {}'.format(name)}))
@@ -138,17 +176,24 @@ class TuneHUDGateway:
             if descriptor.get('read_only', False):
                 await ws.send(json.dumps({'type': 'error', 'name': name, 'message': '{} is read-only'.format(name)}))
                 return
+
             try:
-                prev = self._last_values.get(name)
-                readback = await self.plugin.write_param(name, value)
+                key = '{}.{}'.format(controller, name)
+                prev = self._last_values.get(key)
+                readback = await plugin.write_param(name, value)
                 t = time.time()
-                await ws.send(json.dumps({'type': 'write_ack', 'name': name, 'value': readback, 't': t}))
-                log.info('param_write: {} = {} (readback: {})'.format(name, value, readback))
+                await ws.send(json.dumps({
+                    'type': 'write_ack', 'controller': controller,
+                    'name': name, 'value': readback, 't': t
+                }))
+                log.info('param_write: {}.{} = {} (readback: {})'.format(
+                    controller, name, value, readback))
                 if self._logger:
-                    self._logger.log_write(t, name, prev, readback, str(ws.remote_address))
-                self._last_values[name] = readback
+                    self._logger.log_write(t, controller, name, prev, readback,
+                                           str(ws.remote_address))
+                self._last_values[key] = readback
             except Exception as e:
-                log.error('param_write failed: {} = {}: {}'.format(name, value, e))
+                log.error('param_write failed {}.{}: {}'.format(controller, name, e))
                 await ws.send(json.dumps({'type': 'error', 'name': name, 'message': str(e)}))
 
         elif mtype == 'ping':
@@ -163,6 +208,10 @@ class TuneHUDGateway:
                 }))
 
     async def _ws_handler(self, ws, path=None):
+        # Serve dashboard over HTTP if requested
+        if hasattr(ws, 'path') and ws.path and ws.path != '/':
+            return
+
         await self._register(ws)
         try:
             async for raw in ws:
@@ -176,25 +225,49 @@ class TuneHUDGateway:
         log.info('Stream loop started at {} Hz'.format(self._stream_hz))
         while True:
             t0 = time.time()
-            if self.plugin.is_connected():
-                try:
-                    data = await self.plugin.read_all()
-                    self._last_values.update(data)
-                    if self._logger and data:
+
+            if self._clients:
+                # Read all connected controllers
+                combined_data = {}
+                for name, plugin in self._plugins.items():
+                    if plugin.is_connected():
+                        try:
+                            data = await plugin.read_all()
+                            for k, v in data.items():
+                                combined_data['{}.{}'.format(name, k)] = v
+                                self._last_values['{}.{}'.format(name, k)] = v
+                        except Exception as e:
+                            log.warning('Stream read {} failed: {}'.format(name, e))
+
+                if combined_data:
+                    if self._logger:
                         if not self._logger._stream_header_written:
-                            self._logger.init_stream_header(sorted(data.keys()))
-                        self._logger.log_stream(t0, data)
-                    if self._clients:
-                        msg = json.dumps({'type': 'stream_data', 't': t0, 'data': data})
-                        dead = set()
+                            self._logger.init_stream_header(sorted(combined_data.keys()))
+                        self._logger.log_stream(t0, combined_data)
+
+                    # Send per-controller stream_data messages
+                    ctrl_data = {}
+                    for key, val in combined_data.items():
+                        ctrl, param = key.split('.', 1)
+                        if ctrl not in ctrl_data:
+                            ctrl_data[ctrl] = {}
+                        ctrl_data[ctrl][param] = val
+
+                    dead = set()
+                    for ctrl, data in ctrl_data.items():
+                        msg = json.dumps({
+                            'type': 'stream_data',
+                            'controller': ctrl,
+                            't': t0,
+                            'data': data,
+                        })
                         for ws in list(self._clients):
                             try:
                                 await ws.send(msg)
                             except websockets.exceptions.ConnectionClosed:
                                 dead.add(ws)
-                        self._clients -= dead
-                except Exception as e:
-                    log.warning('Stream read error: {}'.format(e))
+                    self._clients -= dead
+
             elapsed = time.time() - t0
             sleep = (1.0 / self._stream_hz) - elapsed
             if sleep > 0:
@@ -202,47 +275,50 @@ class TuneHUDGateway:
 
     async def _connect_loop(self):
         while True:
-            if not self.plugin.is_connected():
-                try:
-                    log.info('Connecting transport: {}'.format(self.cfg.transport.type))
-                    await self.plugin.connect()
-                    self._manifest = await self.plugin.get_manifest()
-                    log.info('Transport connected. {} params.'.format(
-                        len(self._manifest.get('params', []))))
-                    if self._clients:
-                        manifest_msg = json.dumps(dict({'type': 'manifest_resp'}, **self._manifest))
-                        for ws in list(self._clients):
-                            try:
-                                await ws.send(manifest_msg)
-                            except Exception:
-                                pass
-                except Exception as e:
-                    log.error('Transport connect failed: {}. Retrying in 5s...'.format(e))
-                    await asyncio.sleep(5)
-                    continue
-            await asyncio.sleep(2)
+            for name, plugin in self._plugins.items():
+                if not plugin.is_connected():
+                    try:
+                        log.info('Connecting controller: {}'.format(name))
+                        await plugin.connect()
+                        self._manifests[name] = await plugin.get_manifest()
+                        log.info('Controller {} connected. {} params.'.format(
+                            name, len(self._manifests[name].get('params', []))))
+                        # Push updated manifest to clients
+                        if self._clients:
+                            manifest_msg = json.dumps(self._combined_manifest())
+                            for ws in list(self._clients):
+                                try:
+                                    await ws.send(manifest_msg)
+                                except Exception:
+                                    pass
+                    except Exception as e:
+                        log.error('Controller {} connect failed: {}. Retrying...'.format(name, e))
+            await asyncio.sleep(5)
 
     async def run(self):
         host = self.cfg.server.host
         port = self.cfg.server.port
 
-        log.info('TuneHUD Gateway starting')
-        log.info('Device:    {}'.format(self.cfg.device))
-        log.info('Transport: {}'.format(self.cfg.transport.type))
-        log.info('Server:    ws://{}:{}'.format(host, port))
-        log.info('Stream:    {} Hz (max {} Hz)'.format(self._stream_hz, self.cfg.stream.max_hz))
+        log.info('TuneHUD Gateway starting — {}'.format(self.cfg.title))
+        log.info('Controllers: {}'.format([c.name for c in self.cfg.controllers]))
+        log.info('Server: ws://{}:{}'.format(host, port))
+        log.info('Stream: {} Hz (max {} Hz)'.format(self._stream_hz, self.cfg.stream.max_hz))
+
+        if self.cfg.server.serve_dashboard:
+            log.info('Dashboard: http://{}:{}/'.format(host if host != '0.0.0.0' else 'localhost', port))
 
         if self._logger:
             self._logger.open()
 
-        try:
-            log.info('Connecting transport...')
-            await self.plugin.connect()
-            self._manifest = await self.plugin.get_manifest()
-            log.info('Transport connected. {} params.'.format(
-                len(self._manifest.get('params', []))))
-        except Exception as e:
-            log.warning('Initial connect failed: {}. Will retry...'.format(e))
+        # Initial connect
+        for name, plugin in self._plugins.items():
+            try:
+                await plugin.connect()
+                self._manifests[name] = await plugin.get_manifest()
+                log.info('Controller {} connected. {} params.'.format(
+                    name, len(self._manifests[name].get('params', []))))
+            except Exception as e:
+                log.warning('Controller {} initial connect failed: {}'.format(name, e))
 
         async with websockets.serve(self._ws_handler, host, port):
             log.info('WebSocket server listening on ws://{}:{}'.format(host, port))

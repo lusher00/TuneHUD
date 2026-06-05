@@ -1,0 +1,51 @@
+# tunehud_gateway/configs/multi_demo.yaml
+# Two controllers — velocity loop and temperature loop (both demo nodes)
+# Run two demo nodes: python demo_node.py & python demo_node.py --port 8767
+
+title: "Multi-Controller Demo"
+
+server:
+  host: 0.0.0.0
+  port: 8765
+  serve_dashboard: true
+
+stream:
+  max_hz:     100
+  default_hz: 20
+
+controllers:
+  - name: velocity
+    type: websocket
+    host: 127.0.0.1
+    port: 8766
+    gauges:
+      - param: pv
+        type: arc
+        min: -100
+        max: 100
+        label: "Velocity"
+        units: rpm
+      - param: output
+        type: bar
+        min: -1
+        max: 1
+      - param: error
+        type: numeric
+
+  - name: temperature
+    type: websocket
+    host: 127.0.0.1
+    port: 8767
+    gauges:
+      - param: pv
+        type: arc
+        min: -100
+        max: 100
+        label: "Temperature"
+        units: degC
+      - param: setpoint
+        type: numeric
+      - param: error
+        type: bar
+        min: -50
+        max: 50
