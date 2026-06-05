@@ -44,6 +44,13 @@ sys.path.insert(0, os.path.dirname(__file__))
 from config import load_config
 from plugins import get_plugin
 
+# Camera streamer — optional, disabled if picamera2 not installed
+try:
+    from camera import CameraStreamer
+    HAS_CAMERA = True
+except ImportError:
+    HAS_CAMERA = False
+
 log = logging.getLogger('tunehud.gateway')
 
 DASHBOARD_FILE = os.path.join(os.path.dirname(__file__), 'tunehud_dashboard.html')
@@ -108,7 +115,8 @@ class TuneHUDGateway:
     def __init__(self, config, log_dir=None):
         self.cfg = config
         self._clients = set()
-        self._device_clients = {}   # id(ws) -> {ws, name, latest}
+        self._device_clients = {}
+        self._camera = CameraStreamer(width=1280, height=720, fps=15) if HAS_CAMERA else None
         self._stream_hz = min(config.stream.default_hz, config.stream.max_hz)
         self._logger = SessionLogger(log_dir) if log_dir else None
         self._last_values = {}   # controller.param -> value
@@ -304,13 +312,35 @@ class TuneHUDGateway:
                 }))
 
     async def _process_request(self, connection, request):
-        """Serve dashboard HTML for plain HTTP GET; let WebSocket upgrades through."""
-        # WebSocket upgrade has 'Upgrade: websocket' header
+        """Serve dashboard HTML and MJPEG camera stream for HTTP requests."""
         upgrade = request.headers.get('Upgrade', '')
         if upgrade.lower() == 'websocket':
-            return None  # pass through to WebSocket handler
+            return None
 
-        # Serve dashboard HTML
+        path = str(request.path) if hasattr(request, 'path') else '/'
+
+        # MJPEG camera stream
+        if path == '/camera' and self._camera and self._camera.is_running():
+            boundary = b'--TuneHUDframe'
+            frame = self._camera.get_snapshot_jpeg()
+            if frame is None:
+                body = b'Camera not ready'
+                if WS_V2:
+                    return Response(503, 'Service Unavailable', Headers([('Content-Type','text/plain')]), body)
+                return (503, [('Content-Type','text/plain')], body)
+
+            # For MJPEG we can only return one frame here — browser will reconnect for next
+            # This is enough for a snapshot; true MJPEG needs a raw TCP connection
+            if WS_V2:
+                headers = Headers([
+                    ('Content-Type', 'image/jpeg'),
+                    ('Cache-Control', 'no-cache'),
+                    ('Refresh', '0'),
+                ])
+                return Response(200, 'OK', headers, frame)
+            return (200, [('Content-Type','image/jpeg'),('Cache-Control','no-cache')], frame)
+
+        # Dashboard HTML
         if os.path.exists(DASHBOARD_FILE):
             with open(DASHBOARD_FILE, 'rb') as f:
                 body = f.read()
@@ -321,11 +351,7 @@ class TuneHUDGateway:
                     ('Cache-Control', 'no-cache'),
                 ])
                 return Response(200, 'OK', headers, body)
-            else:
-                return (200, [
-                    ('Content-Type', 'text/html; charset=utf-8'),
-                    ('Content-Length', str(len(body))),
-                ], body)
+            return (200, [('Content-Type','text/html; charset=utf-8'),('Content-Length',str(len(body)))], body)
         else:
             body = b'<h1>TuneHUD dashboard not found</h1>'
             if WS_V2:
@@ -431,6 +457,15 @@ class TuneHUDGateway:
         if self._logger:
             self._logger.open()
 
+        # Start camera if available
+        if self._camera:
+            if self._camera.start():
+                log.info('Camera streaming at http://{}:{}/camera'.format(
+                    host if host != '0.0.0.0' else 'localhost', port))
+            else:
+                log.warning('Camera not available — streaming disabled')
+                self._camera = None
+
         # Initial connect
         for name, plugin in self._plugins.items():
             try:
@@ -452,6 +487,8 @@ class TuneHUDGateway:
             finally:
                 if self._logger:
                     self._logger.close()
+                if self._camera:
+                    self._camera.stop()
 
 
 def main():

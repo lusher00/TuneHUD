@@ -1,0 +1,1109 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
+<title>TuneHUD</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@300;400;500;600&family=IBM+Plex+Sans:wght@300;400;500;600&display=swap" rel="stylesheet">
+<style>
+:root{
+  --bg:#0A0C0F;--bg1:#0F1218;--bg2:#151A22;--bg3:#1C2330;
+  --border:#1E2D40;--border2:#2A3A50;
+  --acc:#00D4AA;--acc2:#00A882;--acc3:#007A60;
+  --amber:#F5A623;--red:#FF4444;--green:#44FF88;--blue:#4488FF;
+  --txt:#C8D8E8;--txt2:#7A9AB6;--txt3:#4A6A86;
+  --mono:'IBM Plex Mono',monospace;--sans:'IBM Plex Sans',sans-serif;
+  --r:4px;
+}
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+html,body{height:100%;background:var(--bg);color:var(--txt);font-family:var(--mono);font-size:12px;overflow:hidden}
+#app{display:flex;flex-direction:column;height:100vh}
+#topbar{display:flex;align-items:center;height:40px;background:var(--bg1);border-bottom:1px solid var(--border);flex-shrink:0;padding:0 12px;gap:8px}
+#main{display:flex;flex:1;overflow:hidden}
+#sidebar{width:220px;background:var(--bg1);border-right:1px solid var(--border);display:flex;flex-direction:column;flex-shrink:0;overflow-y:auto}
+#content{flex:1;overflow:hidden;display:flex;flex-direction:column;min-height:0;min-width:0}
+.logo{font-family:var(--sans);font-weight:600;font-size:15px;color:var(--acc);letter-spacing:0.1em;margin-right:4px}
+.logo span{color:var(--txt2);font-weight:300}
+.sep{width:1px;height:20px;background:var(--border);flex-shrink:0}
+.tb-stat{display:flex;flex-direction:column;align-items:center;min-width:56px}
+.tb-label{font-size:8px;color:var(--txt2);letter-spacing:0.1em;text-transform:uppercase}
+.tb-val{font-size:11px;font-weight:500;color:var(--txt)}
+#conn-badge{display:flex;align-items:center;gap:5px;padding:3px 10px;border-radius:3px;font-size:10px;margin-left:auto;cursor:pointer;border:1px solid var(--border2);background:var(--bg2)}
+#conn-dot{width:6px;height:6px;border-radius:50%;background:var(--txt3);transition:background .3s}
+#conn-dot.on{background:var(--green);box-shadow:0 0 6px var(--green)}
+#conn-dot.off{background:var(--red);animation:blink 1.5s ease-in-out infinite}
+@keyframes blink{0%,100%{opacity:1}50%{opacity:.3}}
+#pkt{font-size:9px;color:var(--txt3);margin-left:4px}
+.sb-section{padding:10px 12px 4px;font-size:9px;letter-spacing:0.12em;text-transform:uppercase;color:var(--txt2);font-weight:600}
+.sb-ctrl{padding:4px 12px 2px;font-size:9px;letter-spacing:0.1em;text-transform:uppercase;color:var(--acc2);border-top:1px solid var(--border);margin-top:4px;font-weight:600}
+.sb-group{padding:4px 12px 2px;font-size:8px;letter-spacing:0.1em;text-transform:uppercase;color:var(--txt2);margin-top:2px}
+.sb-param{display:flex;flex-direction:column;padding:5px 12px;cursor:pointer;border-left:2px solid transparent;transition:all .15s}
+.sb-param:hover{background:var(--bg2);border-left-color:var(--border2)}
+.sb-param.active{background:var(--bg2);border-left-color:var(--acc)}
+.sb-pname{font-size:11px;color:var(--txt);font-weight:500}
+.sb-pval{font-size:10px;color:var(--acc);font-weight:600;margin-top:1px}
+.sb-punit{font-size:9px;color:var(--txt3)}
+#tabs{display:flex;height:34px;background:var(--bg1);border-bottom:1px solid var(--border);flex-shrink:0;position:relative;z-index:10}
+.tab{flex:0 0 auto;padding:0 16px;display:flex;align-items:center;font-size:10px;letter-spacing:0.08em;text-transform:uppercase;color:var(--txt2);cursor:pointer;border-bottom:2px solid transparent;transition:all .2s;font-weight:500;user-select:none}
+.tab:hover{color:var(--txt)}
+.tab.active{color:var(--acc);border-bottom-color:var(--acc)}
+#panels{flex:1;overflow:hidden;position:relative}
+.panel{position:absolute;inset:0;overflow-y:auto;padding:12px;display:none}
+.panel.active{display:block}
+.card{background:var(--bg2);border:1px solid var(--border);border-radius:var(--r);padding:12px;margin-bottom:8px}
+.card-title{font-family:var(--sans);font-size:11px;font-weight:600;color:var(--txt);margin-bottom:10px;letter-spacing:0.04em;display:flex;align-items:center;gap:6px}
+.badge{font-size:8px;padding:1px 6px;border-radius:2px;background:var(--bg3);color:var(--txt2);font-family:var(--mono)}
+.ctrl-badge{font-size:8px;padding:2px 7px;border-radius:3px;font-family:var(--mono);font-weight:600}
+
+/* ── Gauge cluster ── */
+#gauge-wrap{display:flex;flex-wrap:wrap;gap:8px;margin-bottom:8px}
+.ctrl-cluster{background:var(--bg2);border:1px solid var(--border);border-radius:var(--r);padding:10px;flex:1;min-width:280px}
+.ctrl-cluster-title{font-size:9px;letter-spacing:0.12em;text-transform:uppercase;color:var(--acc2);font-weight:600;margin-bottom:8px}
+.gauge-grid{display:flex;flex-wrap:wrap;gap:6px}
+.gauge-box{background:var(--bg3);border:1px solid var(--border);border-radius:var(--r);padding:8px;min-width:110px;flex:1;text-align:center;position:relative}
+.gauge-label{font-size:8px;letter-spacing:0.1em;text-transform:uppercase;color:var(--txt2);margin-bottom:4px}
+.gauge-val{font-size:20px;font-weight:600;color:var(--acc);line-height:1.1;font-family:var(--mono)}
+.gauge-unit{font-size:8px;color:var(--txt3);margin-top:2px}
+.gauge-bar-wrap{height:4px;background:var(--bg);border-radius:2px;margin-top:6px;overflow:hidden}
+.gauge-bar{height:100%;border-radius:2px;transition:width .1s,background .2s}
+
+/* Arc gauge */
+.gauge-arc{display:block;margin:0 auto 2px}
+
+/* Bar gauge vertical */
+.gauge-vbar-wrap{width:12px;height:60px;background:var(--bg);border-radius:2px;overflow:hidden;margin:4px auto;position:relative}
+.gauge-vbar{position:absolute;bottom:0;width:100%;border-radius:2px;transition:height .1s,background .2s}
+
+/* Gauge cluster builder */
+#cluster-builder{padding:12px}
+.builder-section{margin-bottom:16px}
+.builder-title{font-size:10px;font-weight:600;color:var(--txt2);letter-spacing:0.08em;text-transform:uppercase;margin-bottom:8px}
+.gauge-item{display:flex;align-items:center;gap:8px;padding:6px 8px;background:var(--bg3);border:1px solid var(--border);border-radius:var(--r);margin-bottom:4px}
+.gauge-item select,.gauge-item input{background:var(--bg2);border:1px solid var(--border2);border-radius:var(--r);padding:3px 6px;color:var(--txt);font-family:var(--mono);font-size:10px;outline:none}
+.gauge-item select:focus,.gauge-item input:focus{border-color:var(--acc)}
+.gauge-item .del-btn{background:transparent;border:none;color:var(--txt3);cursor:pointer;font-size:13px;padding:0 2px}
+.gauge-item .del-btn:hover{color:var(--red)}
+.add-gauge-btn{padding:4px 10px;background:transparent;border:1px dashed var(--border2);border-radius:var(--r);color:var(--txt3);font-size:10px;cursor:pointer;width:100%;margin-top:4px}
+.add-gauge-btn:hover{border-color:var(--acc);color:var(--acc)}
+
+/* Tune panel */
+.param-row{display:grid;grid-template-columns:140px 1fr 110px;align-items:center;gap:8px;margin-bottom:6px}
+.param-label{font-size:10px;color:var(--txt2)}
+.param-slider{width:100%;accent-color:var(--acc);height:3px;cursor:pointer}
+.param-ctrl{display:flex;align-items:center;gap:3px}
+.step-btn{width:20px;height:20px;border:1px solid var(--border2);background:var(--bg3);color:var(--txt2);font-size:13px;cursor:pointer;border-radius:3px;display:flex;align-items:center;justify-content:center;transition:background .1s;line-height:1}
+.step-btn:hover{background:var(--border)}
+.val-box{width:58px;background:var(--bg3);border:1px solid var(--border2);border-radius:3px;padding:3px 5px;color:var(--acc);font-family:var(--mono);font-size:11px;font-weight:500;text-align:center;outline:none}
+.val-box:focus{border-color:var(--acc)}
+.ro-val{font-size:12px;font-weight:600;color:var(--txt);font-family:var(--mono)}
+
+/* Graph */
+#panel-graph{padding:0!important;display:none!important;flex-direction:column}
+#panel-graph.active{display:flex!important}
+#graph-toolbar{display:flex;align-items:center;gap:8px;padding:7px 12px;background:var(--bg1);border-bottom:1px solid var(--border);flex-shrink:0;flex-wrap:wrap}
+#plots-wrap{flex:1;display:flex;flex-direction:column;overflow:hidden;min-height:0}
+.plot-block{flex:1;display:flex;flex-direction:column;min-height:0;border-bottom:1px solid var(--border)}
+.plot-block:last-child{border-bottom:none}
+.plot-hdr{display:flex;align-items:center;gap:6px;padding:3px 10px;background:var(--bg1);border-bottom:1px solid var(--border);flex-shrink:0;flex-wrap:wrap}
+.plot-num{font-size:9px;color:var(--txt2);font-weight:600;letter-spacing:.1em}
+.series-chip{display:inline-flex;align-items:center;gap:3px;padding:2px 6px 2px 7px;border-radius:10px;font-size:9px;font-weight:600;cursor:default;border:1px solid rgba(255,255,255,.1)}
+.chip-x{cursor:pointer;opacity:.5;font-size:10px;padding-left:2px}.chip-x:hover{opacity:1}
+.add-series-btn{padding:2px 7px;background:transparent;border:1px dashed var(--border2);border-radius:10px;color:var(--txt2);font-size:9px;cursor:pointer}
+.add-series-btn:hover{border-color:var(--acc);color:var(--acc)}
+.rm-plot-btn{margin-left:auto;background:transparent;border:none;color:var(--txt3);font-size:13px;cursor:pointer}
+.rm-plot-btn:hover{color:var(--red)}
+.plot-canvas-wrap{flex:1;position:relative;overflow:hidden;min-height:0}
+.plot-canvas{width:100%;height:100%;display:block}
+.sad{position:absolute;z-index:200;margin-top:2px;background:var(--bg2);border:1px solid var(--border2);border-radius:var(--r);padding:4px;min-width:200px;box-shadow:0 8px 24px rgba(0,0,0,.7);display:none;max-height:260px;overflow-y:auto}
+.sad.open{display:block}
+.sad-grp{font-size:8px;color:var(--txt2);font-weight:600;letter-spacing:.1em;text-transform:uppercase;padding:4px 6px 2px}
+.sad-item{display:flex;align-items:center;gap:7px;padding:4px 8px;cursor:pointer;border-radius:3px;font-size:10px;color:var(--txt2)}
+.sad-item:hover{background:var(--bg3)}
+.sad-item.active{opacity:.4;pointer-events:none}
+.sad-dot{width:6px;height:6px;border-radius:50%;flex-shrink:0}
+.g-btn{padding:4px 9px;background:var(--bg2);border:1px solid var(--border2);border-radius:var(--r);color:var(--txt2);font-family:var(--mono);font-size:10px;cursor:pointer;white-space:nowrap;transition:all .1s}
+.g-btn:hover{background:var(--border);color:var(--txt)}
+.g-btn.rec{color:var(--red);border-color:var(--red)}
+.g-btn.rec-active{background:var(--red);color:#fff;animation:recpulse 1s ease-in-out infinite}
+@keyframes recpulse{0%,100%{opacity:1}50%{opacity:.6}}
+.g-picker{display:flex;border:1px solid var(--border);border-radius:var(--r);overflow:hidden}
+.g-seg{padding:4px 8px;background:transparent;border:none;border-right:1px solid var(--border);color:var(--txt2);font-family:var(--mono);font-size:10px;cursor:pointer;transition:all .1s}
+.g-seg:last-child{border-right:none}
+.g-seg.active{background:var(--acc3);color:#fff}
+.field{margin-bottom:10px}
+.field label{display:block;font-size:9px;color:var(--txt2);letter-spacing:.1em;text-transform:uppercase;margin-bottom:4px}
+.field input{width:100%;background:var(--bg3);border:1px solid var(--border2);border-radius:var(--r);padding:8px 10px;color:var(--txt);font-family:var(--mono);font-size:12px;outline:none}
+.field input:focus{border-color:var(--acc)}
+.btn-primary{width:100%;padding:10px;border:none;border-radius:var(--r);cursor:pointer;font-family:var(--sans);font-size:12px;font-weight:600;letter-spacing:.06em;transition:opacity .2s;margin-bottom:6px}
+.btn-primary:hover{opacity:.85}
+.btn-connect{background:var(--acc);color:#000}
+.btn-disconnect{background:var(--bg3);color:var(--txt2);border:1px solid var(--border2)}
+#debug-out{font-size:10px;color:var(--txt2);white-space:pre-wrap;word-break:break-all;line-height:1.6;background:var(--bg2);border:1px solid var(--border);border-radius:var(--r);padding:10px;min-height:200px;overflow-y:auto}
+.key{color:var(--acc2)}.vnum{color:var(--green)}.vbool{color:var(--amber)}.vstr{color:var(--amber)}
+#status-bar{height:24px;background:var(--bg1);border-top:1px solid var(--border);display:flex;align-items:center;padding:0 12px;gap:12px;flex-shrink:0}
+.status-item{font-size:9px;color:var(--txt2);display:flex;align-items:center;gap:4px}
+.status-dot{width:5px;height:5px;border-radius:50%}
+::-webkit-scrollbar{width:4px;height:4px}
+::-webkit-scrollbar-track{background:transparent}
+::-webkit-scrollbar-thumb{background:var(--border2);border-radius:2px}
+</style>
+</head>
+<body>
+<div id="app">
+  <div id="topbar">
+    <span class="logo">Tune<span>HUD</span></span>
+    <div class="sep"></div>
+    <div class="tb-stat"><span class="tb-label">Title</span><span class="tb-val" id="tb-title">––</span></div>
+    <div class="sep"></div>
+    <div class="tb-stat"><span class="tb-label">Controllers</span><span class="tb-val" id="tb-ctrls">––</span></div>
+    <div class="sep"></div>
+    <div class="tb-stat"><span class="tb-label">Rate</span><span class="tb-val" id="tb-hz">––</span></div>
+    <div id="conn-badge" onclick="showTab('settings')">
+      <div id="conn-dot" class="off"></div>
+      <span id="conn-label">Offline</span>
+    </div>
+    <span id="pkt">pkts: 0</span>
+  </div>
+
+  <div id="main">
+    <div id="sidebar">
+      <div class="sb-section">Parameters</div>
+      <div id="param-list"></div>
+    </div>
+    <div id="content">
+      <div id="tabs">
+        <div class="tab active" data-tab="overview">Overview</div>
+        <div class="tab" data-tab="tune">Tune</div>
+        <div class="tab" data-tab="graph">Graph</div>
+        <div class="tab" data-tab="cluster">Cluster Builder</div>
+        <div class="tab" data-tab="log">Session Log</div>
+        <div class="tab" data-tab="debug">Debug</div>
+        <div class="tab" data-tab="settings">Settings</div>
+      </div>
+      <div id="panels">
+
+        <!-- OVERVIEW -->
+        <div class="panel active" id="panel-overview">
+          <div id="camera-wrap" style="display:none;margin-bottom:8px">
+            <div style="background:var(--bg2);border:1px solid var(--border);border-radius:var(--r);padding:8px">
+              <div style="font-size:9px;color:var(--txt2);letter-spacing:.1em;text-transform:uppercase;margin-bottom:6px;display:flex;align-items:center;gap:8px">
+                Camera
+                <span id="cam-fps" style="color:var(--txt3)"></span>
+                <button onclick="toggleCamera()" id="cam-toggle" style="margin-left:auto;padding:2px 8px;background:var(--bg3);border:1px solid var(--border2);border-radius:3px;color:var(--txt2);font-size:9px;cursor:pointer">Hide</button>
+              </div>
+              <img id="cam-img" style="width:100%;max-height:300px;object-fit:contain;border-radius:3px;background:#000;display:block" alt="Camera feed">
+            </div>
+          </div>
+          <div id="gauge-wrap"></div>
+        </div>
+
+        <!-- TUNE -->
+        <div class="panel" id="panel-tune">
+          <div id="tune-groups"></div>
+        </div>
+
+        <!-- GRAPH -->
+        <div class="panel" id="panel-graph" style="padding:0;display:none;flex-direction:column">
+          <div id="graph-toolbar">
+            <button class="g-btn" onclick="addPlot()" id="add-plot-btn">+ Plot</button>
+            <div class="g-picker" id="ts-picker">
+              <button class="g-seg" onclick="setTs(5)">5s</button>
+              <button class="g-seg" onclick="setTs(15)">15s</button>
+              <button class="g-seg active" onclick="setTs(30)">30s</button>
+              <button class="g-seg" onclick="setTs(60)">60s</button>
+              <button class="g-seg" onclick="setTs(120)">2m</button>
+            </div>
+            <button class="g-btn rec" id="rec-btn" onclick="toggleRec()">⏺ Rec</button>
+            <button class="g-btn" onclick="resetGraph()">Reset</button>
+            <span style="font-size:9px;color:var(--txt3);margin-left:auto" id="rec-status"></span>
+          </div>
+          <div id="plots-wrap"></div>
+        </div>
+
+        <!-- CLUSTER BUILDER -->
+        <div class="panel" id="panel-cluster">
+          <div id="cluster-builder"></div>
+        </div>
+
+        <!-- SESSION LOG -->
+        <div class="panel" id="panel-log">
+          <div class="card">
+            <div class="card-title">Session Log</div>
+            <div id="log-info" style="font-size:10px;color:var(--txt2);line-height:1.8">Connect to see session log info.</div>
+          </div>
+          <div class="card">
+            <div class="card-title">Write History</div>
+            <table id="write-table" style="width:100%;border-collapse:collapse;font-size:10px">
+              <thead><tr style="color:var(--txt2);text-align:left;border-bottom:1px solid var(--border)">
+                <th style="padding:4px 8px">Time</th>
+                <th style="padding:4px 8px">Controller</th>
+                <th style="padding:4px 8px">Param</th>
+                <th style="padding:4px 8px">Value</th>
+              </tr></thead>
+              <tbody id="write-tbody"></tbody>
+            </table>
+          </div>
+        </div>
+
+        <!-- DEBUG -->
+        <div class="panel" id="panel-debug">
+          <div class="card">
+            <div class="card-title">Last message <span class="badge" id="debug-pkt">0 pkts</span></div>
+            <div id="debug-out">Waiting…</div>
+          </div>
+        </div>
+
+        <!-- SETTINGS -->
+        <div class="panel" id="panel-settings">
+          <div class="card">
+            <div class="card-title">Gateway connection</div>
+            <div class="field"><label>Host</label><input id="cfg-host" value="192.168.1.126"></div>
+            <div class="field"><label>Port</label><input id="cfg-port" value="8765" type="number"></div>
+            <button class="btn-primary btn-connect" onclick="doConnect()">Connect</button>
+            <button class="btn-primary btn-disconnect" onclick="doDisconnect()">Disconnect</button>
+          </div>
+          <div class="card">
+            <div class="card-title">Stream rate</div>
+            <div class="param-row">
+              <span class="param-label">Hz</span>
+              <input type="range" class="param-slider" min="1" max="100" value="20" id="hz-slider"
+                oninput="document.getElementById('hz-box').value=this.value"
+                onchange="setStreamHz(this.value)">
+              <div class="param-ctrl">
+                <input class="val-box" id="hz-box" value="20" onchange="setStreamHz(this.value)">
+              </div>
+            </div>
+          </div>
+        </div>
+
+      </div>
+      <div id="status-bar">
+        <div class="status-item">
+          <div class="status-dot" id="hw-dot" style="background:var(--txt3)"></div>
+          <span id="hw-status">Disconnected</span>
+        </div>
+        <div class="status-item" style="margin-left:auto">
+          <span id="stream-rate">–– Hz</span>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+'use strict';
+
+// ── State ──────────────────────────────────────────────────────────────────
+const state = {
+  title: '',
+  controllers: {},   // name -> {device, transport, params[], gauges[]}
+  params: {},        // 'ctrl.name' -> descriptor
+  latest: {},        // 'ctrl.name' -> value
+  pkts: 0,
+  pktTimes: [],
+  pktRate: 0,
+  connected: false,
+};
+
+// Cluster config — persisted in memory, editable from Cluster Builder tab
+// Format: { ctrlName: [ {param, type, min, max, label, units}, ... ] }
+let clusterConfig = {};
+
+// ── WebSocket ──────────────────────────────────────────────────────────────
+let ws = null, reconnTimer = null, reconnDelay = 5000;
+
+function doConnect() {
+  const host = document.getElementById('cfg-host').value.trim();
+  const port = document.getElementById('cfg-port').value.trim();
+  reconnDelay = 5000;
+  connect(`ws://${host}:${port}`);
+}
+function doDisconnect() {
+  clearTimeout(reconnTimer); reconnTimer = null; reconnDelay = 5000;
+  if (ws) { try { ws.close(); } catch {} ws = null; }
+  setConnected(false);
+}
+function connect(url) {
+  if (ws) { try { ws.close(); } catch {} }
+  ws = new WebSocket(url);
+  ws.onopen = () => {
+    reconnDelay = 5000;
+    setConnected(true);
+    sendMsg({type:'manifest_req'});
+    const hz = parseInt(document.getElementById('hz-box').value)||20;
+    sendMsg({type:'stream_start', hz});
+    sendMsg({type:'session_info'});
+    setTimeout(startCamera, 1000);
+  };
+  ws.onclose = ws.onerror = () => {
+    setConnected(false);
+    clearTimeout(reconnTimer);
+    reconnTimer = setTimeout(() => connect(url), reconnDelay);
+    reconnDelay = Math.min(reconnDelay*2, 30000);
+  };
+  ws.onmessage = e => { try { handleMsg(JSON.parse(e.data)); } catch {} };
+}
+function sendMsg(obj) {
+  if (ws && ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify(obj));
+}
+function setConnected(on) {
+  state.connected = on;
+  document.getElementById('conn-dot').className = on ? 'on' : 'off';
+  document.getElementById('conn-label').textContent = on ? 'Connected' : 'Offline';
+  document.getElementById('hw-dot').style.background = on ? 'var(--green)' : 'var(--txt3)';
+  document.getElementById('hw-status').textContent = on ? 'Connected' : 'Disconnected';
+}
+
+// ── Message handling ───────────────────────────────────────────────────────
+function handleMsg(msg) {
+  if (msg.type === 'manifest_resp') {
+    state.title = msg.title || 'TuneHUD';
+    state.controllers = {};
+    state.params = {};
+    for (const c of msg.controllers || []) {
+      state.controllers[c.name] = c;
+      for (const p of c.params || []) {
+        state.params[`${c.name}.${p.name}`] = {...p, controller: c.name};
+      }
+      // Init cluster config from manifest gauges if not already set
+      if (!clusterConfig[c.name] && c.gauges && c.gauges.length) {
+        clusterConfig[c.name] = c.gauges.map(g => ({...g}));
+      } else if (!clusterConfig[c.name]) {
+        // Default: first 3 params as numeric gauges
+        clusterConfig[c.name] = (c.params||[]).slice(0,3).map(p => ({
+          param: p.name, type: 'numeric', min: p.min, max: p.max,
+          label: p.label, units: p.units
+        }));
+      }
+    }
+    document.getElementById('tb-title').textContent = state.title;
+    document.getElementById('tb-ctrls').textContent = Object.keys(state.controllers).length;
+    buildUI();
+  }
+  else if (msg.type === 'stream_data') {
+    const ctrl = msg.controller;
+    const now = performance.now();
+    state.pktTimes.push(now);
+    const cutoff = now - 2000;
+    while (state.pktTimes.length && state.pktTimes[0] < cutoff) state.pktTimes.shift();
+    if (state.pktTimes.length > 1) {
+      const span = (state.pktTimes[state.pktTimes.length-1] - state.pktTimes[0])/1000;
+      state.pktRate = (state.pktTimes.length-1)/span;
+    }
+    state.pkts++;
+    for (const [name, val] of Object.entries(msg.data || {})) {
+      const key = `${ctrl}.${name}`;
+      state.latest[key] = val;
+      appendGraphData(msg.t, ctrl, name, val);
+    }
+    updateUI();
+    updateDebug(msg);
+  }
+  else if (msg.type === 'write_ack') {
+    const key = `${msg.controller}.${msg.name}`;
+    state.latest[key] = msg.value;
+    flashWriteAck(key, msg.value);
+    addWriteHistory(msg.t, msg.controller, msg.name, msg.value);
+  }
+  else if (msg.type === 'session_info') {
+    document.getElementById('log-info').innerHTML =
+      `<b>Stream:</b> ${msg.stream_file||'––'}<br><b>Writes:</b> ${msg.writes_file||'––'}`;
+  }
+  else { updateDebug(msg); }
+}
+
+// ── UI builders ────────────────────────────────────────────────────────────
+function buildUI() {
+  buildSidebar();
+  buildGauges();
+  buildTunePanel();
+  buildClusterBuilder();
+  buildDefaultPlots();
+}
+
+function buildSidebar() {
+  const el = document.getElementById('param-list');
+  el.innerHTML = '';
+  for (const [ctrlName, ctrl] of Object.entries(state.controllers)) {
+    const ch = document.createElement('div');
+    ch.className = 'sb-ctrl';
+    ch.textContent = ctrl.device || ctrlName;
+    el.appendChild(ch);
+    const groups = {};
+    for (const p of ctrl.params||[]) {
+      const g = p.group||'General';
+      if (!groups[g]) groups[g] = [];
+      groups[g].push(p);
+    }
+    for (const [g, params] of Object.entries(groups)) {
+      const gh = document.createElement('div');
+      gh.className = 'sb-group'; gh.textContent = g;
+      el.appendChild(gh);
+      for (const p of params) {
+        const key = `${ctrlName}.${p.name}`;
+        const row = document.createElement('div');
+        row.className = 'sb-param'; row.id = `sb-${key}`;
+        row.innerHTML = `<div class="sb-pname">${p.label}</div><div><span class="sb-pval" id="sbv-${key}">––</span> <span class="sb-punit">${p.units||''}</span></div>`;
+        el.appendChild(row);
+      }
+    }
+  }
+}
+
+function buildGauges() {
+  const wrap = document.getElementById('gauge-wrap');
+  wrap.innerHTML = '';
+  for (const [ctrlName, ctrl] of Object.entries(state.controllers)) {
+    const cluster = document.createElement('div');
+    cluster.className = 'ctrl-cluster';
+    const title = document.createElement('div');
+    title.className = 'ctrl-cluster-title';
+    title.textContent = ctrl.device || ctrlName;
+    cluster.appendChild(title);
+    const grid = document.createElement('div');
+    grid.className = 'gauge-grid';
+    const gauges = clusterConfig[ctrlName] || [];
+    for (const g of gauges) {
+      grid.appendChild(makeGaugeEl(ctrlName, g));
+    }
+    cluster.appendChild(grid);
+    wrap.appendChild(cluster);
+  }
+}
+
+function makeGaugeEl(ctrlName, g) {
+  const key = `${ctrlName}.${g.param}`;
+  const val = state.latest[key] ?? 0;
+  const div = document.createElement('div');
+  div.className = 'gauge-box'; div.id = `gauge-${key}`;
+  div.dataset.gtype = g.type||'numeric';
+  div.dataset.gmin = g.min||0; div.dataset.gmax = g.max||100;
+
+  const label = document.createElement('div');
+  label.className = 'gauge-label';
+  label.textContent = (g.label||g.param) + (g.units ? ' · '+g.units : '');
+  div.appendChild(label);
+
+  if (g.type === 'arc') {
+    const svg = makeSvgArc(val, g.min||0, g.max||100, key);
+    div.appendChild(svg);
+    const vEl = document.createElement('div');
+    vEl.className = 'gauge-val'; vEl.id = `gv-${key}`;
+    vEl.style.fontSize = '14px'; vEl.textContent = fmt(val);
+    div.appendChild(vEl);
+  } else if (g.type === 'bar') {
+    const vEl = document.createElement('div');
+    vEl.className = 'gauge-val'; vEl.id = `gv-${key}`;
+    vEl.textContent = fmt(val);
+    div.appendChild(vEl);
+    const bWrap = document.createElement('div'); bWrap.className = 'gauge-bar-wrap';
+    const bar = document.createElement('div'); bar.className = 'gauge-bar'; bar.id = `gb-${key}`;
+    bWrap.appendChild(bar); div.appendChild(bWrap);
+  } else if (g.type === 'vbar') {
+    const vEl = document.createElement('div');
+    vEl.className = 'gauge-val'; vEl.style.fontSize='13px'; vEl.id = `gv-${key}`;
+    vEl.textContent = fmt(val);
+    div.appendChild(vEl);
+    const bWrap = document.createElement('div'); bWrap.className = 'gauge-vbar-wrap';
+    const bar = document.createElement('div'); bar.className = 'gauge-vbar'; bar.id = `gb-${key}`;
+    bWrap.appendChild(bar); div.appendChild(bWrap);
+  } else {
+    // numeric (default)
+    const vEl = document.createElement('div');
+    vEl.className = 'gauge-val'; vEl.id = `gv-${key}`;
+    vEl.textContent = fmt(val);
+    div.appendChild(vEl);
+    if (g.units) {
+      const uEl = document.createElement('div'); uEl.className = 'gauge-unit'; uEl.textContent = g.units;
+      div.appendChild(uEl);
+    }
+  }
+  return div;
+}
+
+function makeSvgArc(val, min, max, id) {
+  const pct = Math.max(0, Math.min(1, (val-min)/(max-min)));
+  const angle = -135 + pct*270;
+  const col = pct > 0.85 ? '#FF4444' : pct > 0.65 ? '#F5A623' : '#00D4AA';
+  const ns = 'http://www.w3.org/2000/svg';
+  const svg = document.createElementNS(ns, 'svg');
+  svg.setAttribute('viewBox','0 0 80 60'); svg.setAttribute('width','80'); svg.setAttribute('height','60');
+  svg.className.baseVal = 'gauge-arc'; svg.id = `garc-${id}`;
+
+  function arcPath(cx,cy,r,startDeg,endDeg) {
+    const s = startDeg*Math.PI/180, e = endDeg*Math.PI/180;
+    const x1=cx+r*Math.cos(s), y1=cy+r*Math.sin(s);
+    const x2=cx+r*Math.cos(e), y2=cy+r*Math.sin(e);
+    const large = (endDeg-startDeg)>180?1:0;
+    return `M${x1},${y1} A${r},${r} 0 ${large},1 ${x2},${y2}`;
+  }
+  const bg = document.createElementNS(ns,'path');
+  bg.setAttribute('d', arcPath(40,50,28,-225,-45));
+  bg.setAttribute('fill','none'); bg.setAttribute('stroke','#1C2330'); bg.setAttribute('stroke-width','6');
+  bg.setAttribute('stroke-linecap','round'); svg.appendChild(bg);
+
+  const fg = document.createElementNS(ns,'path');
+  fg.setAttribute('d', arcPath(40,50,28,-225,-225+pct*270));
+  fg.setAttribute('fill','none'); fg.setAttribute('stroke',col); fg.setAttribute('stroke-width','6');
+  fg.setAttribute('stroke-linecap','round'); fg.id = `garc-fg-${id}`; svg.appendChild(fg);
+
+  const needle = document.createElementNS(ns,'line');
+  const nx = 40+22*Math.cos((angle-90)*Math.PI/180);
+  const ny = 50+22*Math.sin((angle-90)*Math.PI/180);
+  needle.setAttribute('x1','40'); needle.setAttribute('y1','50');
+  needle.setAttribute('x2', nx); needle.setAttribute('y2', ny);
+  needle.setAttribute('stroke',col); needle.setAttribute('stroke-width','2');
+  needle.setAttribute('stroke-linecap','round'); needle.id=`garc-needle-${id}`; svg.appendChild(needle);
+
+  const dot = document.createElementNS(ns,'circle');
+  dot.setAttribute('cx','40'); dot.setAttribute('cy','50'); dot.setAttribute('r','3');
+  dot.setAttribute('fill',col); svg.appendChild(dot);
+  return svg;
+}
+
+function updateArcGauge(key, val, min, max) {
+  const pct = Math.max(0, Math.min(1, (val-min)/(max-min)));
+  const angle = -135 + pct*270;
+  const col = pct > 0.85 ? '#FF4444' : pct > 0.65 ? '#F5A623' : '#00D4AA';
+
+  function arcPath(cx,cy,r,startDeg,endDeg) {
+    const s=startDeg*Math.PI/180, e=endDeg*Math.PI/180;
+    const x1=cx+r*Math.cos(s),y1=cy+r*Math.sin(s),x2=cx+r*Math.cos(e),y2=cy+r*Math.sin(e);
+    const large=(endDeg-startDeg)>180?1:0;
+    return `M${x1},${y1} A${r},${r} 0 ${large},1 ${x2},${y2}`;
+  }
+  const fg = document.getElementById(`garc-fg-${key}`);
+  const needle = document.getElementById(`garc-needle-${key}`);
+  if (fg) { fg.setAttribute('d', arcPath(40,50,28,-225,-225+pct*270)); fg.setAttribute('stroke',col); }
+  if (needle) {
+    const nx=40+22*Math.cos((angle-90)*Math.PI/180), ny=50+22*Math.sin((angle-90)*Math.PI/180);
+    needle.setAttribute('x2',nx); needle.setAttribute('y2',ny); needle.setAttribute('stroke',col);
+  }
+}
+
+function buildTunePanel() {
+  const wrap = document.getElementById('tune-groups');
+  wrap.innerHTML = '';
+  for (const [ctrlName, ctrl] of Object.entries(state.controllers)) {
+    const ctrlCard = document.createElement('div');
+    ctrlCard.className = 'card';
+    ctrlCard.innerHTML = `<div class="card-title">${ctrl.device||ctrlName} <span class="badge">${ctrl.transport}</span></div>`;
+
+    const groups = {};
+    for (const p of ctrl.params||[]) {
+      const g = p.group||'General';
+      if (!groups[g]) groups[g] = [];
+      groups[g].push(p);
+    }
+
+    for (const [g, params] of Object.entries(groups)) {
+      const gh = document.createElement('div');
+      gh.style.cssText='font-size:9px;color:var(--txt2);letter-spacing:.1em;text-transform:uppercase;margin:8px 0 4px;font-weight:600';
+      gh.textContent = g; ctrlCard.appendChild(gh);
+
+      for (const p of params) {
+        const key = `${ctrlName}.${p.name}`;
+        const val = state.latest[key] ?? 0;
+        const row = document.createElement('div');
+        row.className = 'param-row';
+        if (p.read_only) {
+          row.innerHTML = `
+            <span class="param-label">${p.label}${p.units?' ('+p.units+')':''}</span>
+            <div></div>
+            <span class="ro-val" id="ro-${key}">${fmt(val)}</span>`;
+        } else {
+          const min=p.min??0, max=p.max??100, step=p.step??0.01;
+          row.innerHTML = `
+            <span class="param-label">${p.label}${p.units?' ('+p.units+')':''}</span>
+            <input type="range" class="param-slider" id="sl-${key}"
+              min="${min}" max="${max}" step="${step}" value="${val}"
+              oninput="syncSliderDisplay('${key}',this.value)"
+              onchange="onSlider('${key}',this.value)">
+            <div class="param-ctrl">
+              <button class="step-btn" onclick="stepParam('${key}',-1)">−</button>
+              <input class="val-box" id="vb-${key}" value="${fmt(val)}"
+                onchange="onValBox('${key}',this.value)" onblur="onValBox('${key}',this.value)">
+              <button class="step-btn" onclick="stepParam('${key}',1)">+</button>
+            </div>`;
+        }
+        ctrlCard.appendChild(row);
+      }
+    }
+    wrap.appendChild(ctrlCard);
+  }
+}
+
+function buildClusterBuilder() {
+  const wrap = document.getElementById('cluster-builder');
+  wrap.innerHTML = '';
+  for (const [ctrlName, ctrl] of Object.entries(state.controllers)) {
+    const section = document.createElement('div');
+    section.className = 'builder-section';
+    section.innerHTML = `<div class="builder-title">${ctrl.device||ctrlName}</div>`;
+
+    const gauges = clusterConfig[ctrlName] || [];
+    for (let i = 0; i < gauges.length; i++) {
+      section.appendChild(makeGaugeBuilderRow(ctrlName, i, ctrl.params||[]));
+    }
+
+    const addBtn = document.createElement('button');
+    addBtn.className = 'add-gauge-btn';
+    addBtn.textContent = '+ Add gauge';
+    addBtn.onclick = () => {
+      if (!clusterConfig[ctrlName]) clusterConfig[ctrlName] = [];
+      const firstParam = (ctrl.params||[])[0];
+      clusterConfig[ctrlName].push({
+        param: firstParam?.name||'', type:'numeric',
+        min: firstParam?.min||0, max: firstParam?.max||100,
+        label: firstParam?.label||'', units: firstParam?.units||''
+      });
+      buildClusterBuilder();
+      buildGauges();
+    };
+    section.appendChild(addBtn);
+    wrap.appendChild(section);
+  }
+}
+
+function makeGaugeBuilderRow(ctrlName, idx, params) {
+  const g = clusterConfig[ctrlName][idx];
+  const row = document.createElement('div');
+  row.className = 'gauge-item';
+
+  const paramSel = document.createElement('select');
+  for (const p of params) {
+    const opt = document.createElement('option');
+    opt.value = p.name; opt.textContent = p.label||p.name;
+    if (p.name === g.param) opt.selected = true;
+    paramSel.appendChild(opt);
+  }
+  paramSel.onchange = () => {
+    const p = params.find(p=>p.name===paramSel.value);
+    clusterConfig[ctrlName][idx].param = paramSel.value;
+    if (p) {
+      clusterConfig[ctrlName][idx].min = p.min||0;
+      clusterConfig[ctrlName][idx].max = p.max||100;
+      clusterConfig[ctrlName][idx].units = p.units||'';
+      clusterConfig[ctrlName][idx].label = p.label||p.name;
+    }
+    buildGauges();
+  };
+
+  const typeSel = document.createElement('select');
+  for (const t of ['numeric','arc','bar','vbar']) {
+    const opt = document.createElement('option');
+    opt.value = t; opt.textContent = t;
+    if (t === g.type) opt.selected = true;
+    typeSel.appendChild(opt);
+  }
+  typeSel.onchange = () => {
+    clusterConfig[ctrlName][idx].type = typeSel.value;
+    buildGauges();
+  };
+
+  const minIn = document.createElement('input');
+  minIn.type='number'; minIn.value=g.min||0; minIn.placeholder='min'; minIn.style.width='60px';
+  minIn.onchange = () => { clusterConfig[ctrlName][idx].min = parseFloat(minIn.value); buildGauges(); };
+
+  const maxIn = document.createElement('input');
+  maxIn.type='number'; maxIn.value=g.max||100; maxIn.placeholder='max'; maxIn.style.width='60px';
+  maxIn.onchange = () => { clusterConfig[ctrlName][idx].max = parseFloat(maxIn.value); buildGauges(); };
+
+  const delBtn = document.createElement('button');
+  delBtn.className = 'del-btn'; delBtn.textContent = '×';
+  delBtn.onclick = () => {
+    clusterConfig[ctrlName].splice(idx, 1);
+    buildClusterBuilder(); buildGauges();
+  };
+
+  const label = document.createElement('span');
+  label.style.cssText = 'font-size:10px;color:var(--txt2);min-width:40px';
+  label.textContent = 'param:';
+
+  row.append(label, paramSel, typeSel, minIn, maxIn, delBtn);
+  return row;
+}
+
+// ── Live updates ───────────────────────────────────────────────────────────
+function updateUI() {
+  document.getElementById('pkt').textContent = `pkts: ${state.pkts}`;
+  const rateStr = state.pktRate > 0 ? Math.round(state.pktRate)+' Hz' : '––';
+  document.getElementById('tb-hz').textContent = rateStr;
+  document.getElementById('stream-rate').textContent = rateStr;
+
+  for (const [key, val] of Object.entries(state.latest)) {
+    const fv = fmt(val);
+    const sbv = document.getElementById(`sbv-${key}`);
+    if (sbv) sbv.textContent = fv;
+    const ro = document.getElementById(`ro-${key}`);
+    if (ro) ro.textContent = fv;
+    const gv = document.getElementById(`gv-${key}`);
+    if (gv) gv.textContent = fv;
+
+    // Arc gauge
+    const garc = document.getElementById(`garc-${key}`);
+    if (garc) {
+      const box = garc.closest('.gauge-box');
+      if (box) updateArcGauge(key, val, parseFloat(box.dataset.gmin||0), parseFloat(box.dataset.gmax||100));
+    }
+    // Bar gauge
+    const gb = document.getElementById(`gb-${key}`);
+    if (gb) {
+      const box = gb.closest('.gauge-box');
+      const min = parseFloat(box?.dataset.gmin||0), max = parseFloat(box?.dataset.gmax||100);
+      const pct = Math.max(0, Math.min(100, (val-min)/(max-min)*100));
+      const col = pct>85?'var(--red)':pct>65?'var(--amber)':'var(--acc)';
+      if (box?.dataset.gtype === 'vbar') {
+        gb.style.height = pct+'%'; gb.style.background = col;
+      } else {
+        gb.style.width = pct+'%'; gb.style.background = col;
+      }
+    }
+  }
+}
+
+function flashWriteAck(key, val) {
+  const vb = document.getElementById(`vb-${key}`);
+  if (vb) {
+    vb.style.color = 'var(--green)';
+    vb.value = fmt(val);
+    setTimeout(() => vb.style.color = 'var(--acc)', 600);
+  }
+}
+
+function addWriteHistory(t, ctrl, name, val) {
+  const tbody = document.getElementById('write-tbody');
+  const ts = new Date(t*1000).toLocaleTimeString();
+  const p = state.params[`${ctrl}.${name}`];
+  const tr = document.createElement('tr');
+  tr.style.borderBottom = '1px solid var(--border)';
+  tr.innerHTML = `
+    <td style="padding:3px 8px;color:var(--txt3)">${ts}</td>
+    <td style="padding:3px 8px;color:var(--acc2)">${ctrl}</td>
+    <td style="padding:3px 8px;color:var(--acc)">${p?.label||name}</td>
+    <td style="padding:3px 8px;color:var(--txt)">${fmt(val)}</td>`;
+  tbody.insertBefore(tr, tbody.firstChild);
+  if (tbody.children.length > 50) tbody.removeChild(tbody.lastChild);
+}
+
+// ── Param write ────────────────────────────────────────────────────────────
+function splitKey(key) {
+  const dot = key.indexOf('.');
+  return [key.slice(0,dot), key.slice(dot+1)];
+}
+
+function syncSliderDisplay(key, raw) {
+  const v = parseFloat(raw);
+  const p = state.params[key];
+  const dec = p ? Math.max(0, Math.ceil(-Math.log10(p.step||0.01))) : 2;
+  const vb = document.getElementById(`vb-${key}`);
+  if (vb) vb.value = v.toFixed(dec);
+}
+
+function onSlider(key, raw) {
+  const v = parseFloat(raw);
+  const p = state.params[key];
+  const dec = p ? Math.max(0, Math.ceil(-Math.log10(p.step||0.01))) : 2;
+  const vb = document.getElementById(`vb-${key}`);
+  if (vb) vb.value = v.toFixed(dec);
+  const [ctrl, name] = splitKey(key);
+  sendMsg({type:'param_write', controller:ctrl, name, value:v});
+}
+
+function onValBox(key, raw) {
+  const v = parseFloat(raw); if (isNaN(v)) return;
+  const sl = document.getElementById(`sl-${key}`);
+  if (sl) sl.value = v;
+  const [ctrl, name] = splitKey(key);
+  sendMsg({type:'param_write', controller:ctrl, name, value:v});
+}
+
+function stepParam(key, dir) {
+  const p = state.params[key]; if (!p) return;
+  const step = p.step||0.01;
+  const cur = state.latest[key] ?? 0;
+  let v = Math.round((cur + dir*step)*1e6)/1e6;
+  if (p.min!=null) v=Math.max(p.min,v);
+  if (p.max!=null) v=Math.min(p.max,v);
+  const dec = Math.max(0, Math.ceil(-Math.log10(step)));
+  const sl = document.getElementById(`sl-${key}`);
+  const vb = document.getElementById(`vb-${key}`);
+  if (sl) sl.value = v;
+  if (vb) vb.value = v.toFixed(dec);
+  const [ctrl, name] = splitKey(key);
+  sendMsg({type:'param_write', controller:ctrl, name, value:v});
+}
+
+function setStreamHz(val) {
+  const hz = Math.max(1, Math.min(100, parseInt(val)||20));
+  document.getElementById('hz-slider').value = hz;
+  document.getElementById('hz-box').value = hz;
+  sendMsg({type:'stream_start', hz});
+}
+
+// ── Graph ──────────────────────────────────────────────────────────────────
+let windowSec = 30;
+const MAX_PTS = 1000, L=44, R=8, B=18, T=4;
+const COLORS = ['#00D4AA','#F5A623','#4488FF','#FF4444','#44FF88','#BB44FF','#FF8844','#44CCFF'];
+const bufs = {};  // 'ctrl.param' -> [{t,v}]
+let tRef = null;
+
+function appendGraphData(t, ctrl, name, val) {
+  if (tRef===null) tRef=t;
+  const key=`${ctrl}.${name}`;
+  if (!bufs[key]) bufs[key]=[];
+  bufs[key].push({t,v:val});
+  const cutoff=t-windowSec;
+  while(bufs[key].length && bufs[key][0].t<cutoff) bufs[key].shift();
+  if(bufs[key].length>MAX_PTS) bufs[key].splice(0,bufs[key].length-MAX_PTS);
+  if(recording) recBuf.push({t,ctrl,name,val});
+}
+
+let plots=[], nextPid=0;
+
+function buildDefaultPlots() {
+  plots=[];
+  for (const [ctrlName, ctrl] of Object.entries(state.controllers)) {
+    const params = ctrl.params||[];
+    const preferred1 = ['pv','setpoint','measurement','process_value'];
+    const preferred2 = ['error','output'];
+    const p1 = preferred1.filter(n=>params.find(p=>p.name===n)).map(n=>`${ctrlName}.${n}`);
+    const p2 = preferred2.filter(n=>params.find(p=>p.name===n)).map(n=>`${ctrlName}.${n}`);
+    if (!p1.length) p1.push(...params.slice(0,2).map(p=>`${ctrlName}.${p.name}`));
+    if (p1.length) plots.push({id:nextPid++, series:p1});
+    if (p2.length) plots.push({id:nextPid++, series:p2});
+  }
+  rebuildPlots();
+}
+
+function rebuildPlots() {
+  const wrap=document.getElementById('plots-wrap');
+  if(!wrap) return;
+  wrap.innerHTML='';
+  plots.forEach((plot,pi)=>{
+    const block=document.createElement('div'); block.className='plot-block'; block.id='pb-'+plot.id;
+    let hdr=`<div class="plot-hdr"><span class="plot-num">PLOT ${pi+1}</span>`;
+    plot.series.forEach((key,si)=>{
+      const col=COLORS[si%COLORS.length];
+      const p=state.params[key];
+      const lbl=p?(p.controller+' · '+(p.label||key.split('.')[1])):key;
+      hdr+=`<span class="series-chip" style="background:${col}22;border-color:${col}55;color:${col}">${lbl}<span class="chip-x" onclick="removeSeries(${plot.id},'${key}')">×</span></span>`;
+    });
+    const awid='aw-'+plot.id;
+    hdr+=`<div style="position:relative" id="${awid}"><button class="add-series-btn" onclick="toggleSad(${plot.id})">+ series</button><div class="sad" id="sad-${plot.id}"></div></div>`;
+    if(plots.length>1) hdr+=`<button class="rm-plot-btn" onclick="removePlot(${plot.id})">×</button>`;
+    hdr+='</div>';
+    block.innerHTML=hdr+`<div class="plot-canvas-wrap"><canvas class="plot-canvas" id="pc-${plot.id}"></canvas></div>`;
+    wrap.appendChild(block);
+    buildSad(plot.id);
+  });
+  document.getElementById('add-plot-btn').disabled=plots.length>=6;
+}
+
+function buildSad(pid) {
+  const sad=document.getElementById('sad-'+pid); if(!sad) return;
+  sad.innerHTML='';
+  for(const [ctrlName,ctrl] of Object.entries(state.controllers)) {
+    const grp=document.createElement('div'); grp.className='sad-grp'; grp.textContent=ctrl.device||ctrlName; sad.appendChild(grp);
+    (ctrl.params||[]).forEach((p,i)=>{
+      const key=`${ctrlName}.${p.name}`;
+      const plot=plots.find(pl=>pl.id===pid);
+      const active=plot&&plot.series.includes(key);
+      const col=COLORS[i%COLORS.length];
+      const item=document.createElement('div'); item.className='sad-item'+(active?' active':'');
+      item.innerHTML=`<span class="sad-dot" style="background:${col}"></span>${p.label||p.name}`;
+      item.onclick=()=>{addSeries(pid,key);closeSads();};
+      sad.appendChild(item);
+    });
+  }
+}
+
+function toggleSad(pid){const el=document.getElementById('sad-'+pid);const was=el.classList.contains('open');closeSads();if(!was)el.classList.add('open');}
+function closeSads(){document.querySelectorAll('.sad').forEach(e=>e.classList.remove('open'));}
+document.addEventListener('click',e=>{if(!e.target.closest('.add-series-btn')&&!e.target.closest('.sad'))closeSads();});
+function addSeries(pid,key){const p=plots.find(pl=>pl.id===pid);if(p&&!p.series.includes(key)){p.series.push(key);rebuildPlots();}}
+function removeSeries(pid,key){const p=plots.find(pl=>pl.id===pid);if(p){p.series=p.series.filter(n=>n!==key);rebuildPlots();}}
+function addPlot(){if(plots.length>=6)return;plots.push({id:nextPid++,series:[]});rebuildPlots();}
+function removePlot(pid){if(plots.length<=1)return;plots=plots.filter(p=>p.id!==pid);rebuildPlots();}
+function setTs(s){windowSec=s;document.querySelectorAll('#ts-picker .g-seg').forEach(b=>b.classList.toggle('active',b.textContent===s+'s'||(s===120&&b.textContent==='2m')));}
+function resetGraph(){for(const k in bufs)bufs[k]=[];tRef=null;}
+
+// Recording
+let recording=false, recBuf=[];
+function toggleRec(){
+  if(recording){recording=false;saveCSV();recBuf=[];}
+  else{recording=true;recBuf=[];}
+  const btn=document.getElementById('rec-btn');
+  btn.className='g-btn '+(recording?'rec-active':'rec');
+  btn.textContent=recording?'⏹ Stop':'⏺ Rec';
+  document.getElementById('rec-status').textContent=recording?'Recording…':'';
+}
+function saveCSV(){
+  if(!recBuf.length)return;
+  const keys=[...new Set(recBuf.map(r=>`${r.ctrl}.${r.name}`))];
+  let csv=['t',...keys].join(',')+'\n';
+  const byT={};
+  recBuf.forEach(r=>{const k=r.t.toFixed(3);if(!byT[k])byT[k]={t:r.t};byT[k][`${r.ctrl}.${r.name}`]=r.val;});
+  for(const row of Object.values(byT))
+    csv+=[row.t.toFixed(3),...keys.map(k=>row[k]??'')].join(',')+'\n';
+  const a=document.createElement('a');
+  a.href=URL.createObjectURL(new Blob([csv],{type:'text/csv'}));
+  a.download='tunehud_'+Date.now()+'.csv'; a.click();
+}
+
+// Draw
+function niceGrid(lo,hi,n){
+  const span=hi-lo;if(span<=0)return[];
+  const raw=span/n,mag=Math.pow(10,Math.floor(Math.log10(raw)));
+  const step=([1,2,2.5,5,10].find(s=>s*mag>=raw)||10)*mag;
+  const vals=[];let v=Math.ceil(lo/step)*step;
+  while(v<=hi+step*.01){vals.push(v);v+=step;}return vals;
+}
+function fmtA(v){const a=Math.abs(v);if(a>=10000)return(v/1000).toFixed(0)+'k';if(a>=100)return v.toFixed(0);if(a>=1)return v.toFixed(1);return v.toFixed(2);}
+
+function drawAllPlots(){
+  const panel=document.getElementById('panel-graph');
+  if(!panel||panel.style.display==='none')return;
+  const tMax=Math.max(...Object.values(bufs).flatMap(b=>b.map(p=>p.t)),0)||performance.now()/1000;
+  const tMin=tMax-windowSec;
+  plots.forEach((plot,pi)=>{
+    const cv=document.getElementById('pc-'+plot.id);if(!cv)return;
+    const dpr=window.devicePixelRatio||1;
+    const W=cv.parentElement.clientWidth,H=cv.parentElement.clientHeight;
+    if(W<10||H<10)return;
+    if(cv.width!==W*dpr||cv.height!==H*dpr){cv.width=W*dpr;cv.height=H*dpr;cv.style.width=W+'px';cv.style.height=H+'px';}
+    const ctx=cv.getContext('2d');
+    ctx.setTransform(dpr,0,0,dpr,0,0);
+    ctx.clearRect(0,0,W,H);
+    ctx.fillStyle='#0A0C0F';ctx.fillRect(0,0,W,H);
+    const PW=W-L-R,PH=H-T-B;
+    const last=pi===plots.length-1;
+    let allV=[];
+    plot.series.forEach(key=>(bufs[key]||[]).filter(p=>p.t>=tMin).forEach(p=>allV.push(p.v)));
+    const rMin=allV.length?Math.min(...allV):-1,rMax=allV.length?Math.max(...allV):1;
+    const span=Math.max(rMax-rMin,0.001);
+    const yMin=rMin-span*.1,yMax=rMax+span*.1,ySpan=yMax-yMin;
+    const px=t=>L+(t-tMin)/windowSec*PW;
+    const py=v=>T+(1-(v-yMin)/ySpan)*PH;
+    const cy=y=>Math.max(T,Math.min(T+PH,y));
+    ctx.font=`9px 'IBM Plex Mono',monospace`;
+    niceGrid(yMin,yMax,5).forEach(gv=>{
+      const gy=py(gv);if(gy<T-.5||gy>T+PH+.5)return;
+      const isZ=Math.abs(gv)<ySpan*.01;
+      ctx.beginPath();ctx.moveTo(L,gy);ctx.lineTo(L+PW,gy);
+      ctx.strokeStyle=isZ?'rgba(0,212,170,.35)':'rgba(42,58,80,.5)';
+      ctx.lineWidth=isZ?1:.5;ctx.setLineDash(isZ?[]:[4,4]);ctx.stroke();ctx.setLineDash([]);
+      ctx.fillStyle='#4A6A86';ctx.textAlign='right';ctx.textBaseline='middle';
+      ctx.fillText(fmtA(gv),L-3,gy);
+    });
+    if(last){
+      for(let xg=Math.ceil(tMin/5)*5;xg<=tMax+.01;xg+=5){
+        const gx=px(xg);if(gx<L-.5||gx>L+PW+.5)continue;
+        ctx.beginPath();ctx.moveTo(gx,T);ctx.lineTo(gx,T+PH);
+        ctx.strokeStyle='rgba(42,58,80,.3)';ctx.lineWidth=.5;ctx.setLineDash([4,4]);ctx.stroke();ctx.setLineDash([]);
+        const age=Math.round(tMax-xg);
+        ctx.fillStyle='#4A6A86';ctx.textAlign='center';ctx.textBaseline='middle';
+        ctx.fillText(age===0?'now':'-'+age+'s',gx,H-B/2);
+      }
+    }
+    ctx.strokeStyle='rgba(42,58,80,.5)';ctx.lineWidth=.5;ctx.strokeRect(L,T,PW,PH);
+    plot.series.forEach((key,si)=>{
+      const pts=(bufs[key]||[]).filter(p=>p.t>=tMin-.1);if(pts.length<2)return;
+      ctx.beginPath();let started=false;
+      pts.forEach(p=>{const x=px(p.t),y=cy(py(p.v));if(!started){ctx.moveTo(x,y);started=true;}else ctx.lineTo(x,y);});
+      ctx.strokeStyle=COLORS[si%COLORS.length];ctx.lineWidth=1.5;ctx.stroke();
+    });
+  });
+}
+
+// ── Debug ──────────────────────────────────────────────────────────────────
+function updateDebug(d){
+  document.getElementById('debug-pkt').textContent=state.pkts+' pkts';
+  document.getElementById('debug-out').innerHTML=
+    JSON.stringify(d,null,2)
+      .replace(/("[\w_.]+"):/g,'<span class="key">$1</span>:')
+      .replace(/: (true|false)/g,': <span class="vbool">$1</span>')
+      .replace(/: (-?\d+\.?\d*)/g,': <span class="vnum">$1</span>')
+      .replace(/: "([^"]*)"/g,': <span class="vstr">"$1"</span>');
+}
+
+// ── Tabs ───────────────────────────────────────────────────────────────────
+function showTab(name){
+  document.querySelectorAll('.tab').forEach(t=>t.classList.toggle('active',t.dataset.tab===name));
+  document.querySelectorAll('.panel').forEach(p=>{
+    const match=p.id==='panel-'+name;
+    p.classList.toggle('active',match);
+    if(p.id==='panel-graph')p.style.display=match?'flex':'none';
+  });
+  if(name==='graph')rebuildPlots();
+}
+document.querySelectorAll('.tab').forEach(t=>t.addEventListener('click',()=>showTab(t.dataset.tab)));
+
+// ── Utils ──────────────────────────────────────────────────────────────────
+function fmt(v){
+  if(v==null)return'––';
+  const n=parseFloat(v);if(isNaN(n))return String(v);
+  if(Math.abs(n)>=1000)return n.toFixed(0);
+  if(Math.abs(n)>=100)return n.toFixed(1);
+  if(Math.abs(n)>=10)return n.toFixed(2);
+  return n.toFixed(3);
+}
+
+// ── Camera ────────────────────────────────────────────────────────────────
+let camEnabled = false;
+let camInterval = null;
+let camLastT = 0;
+
+function startCamera() {
+  const host = document.getElementById('cfg-host').value.trim();
+  const port = document.getElementById('cfg-port').value.trim();
+  const url = `http://${host}:${port}/camera`;
+  const img = document.getElementById('cam-img');
+  const wrap = document.getElementById('camera-wrap');
+
+  // Test if camera endpoint exists
+  fetch(url).then(r => {
+    if (r.ok && r.headers.get('content-type')?.includes('image')) {
+      wrap.style.display = 'block';
+      camEnabled = true;
+      refreshCamera(url);
+    }
+  }).catch(() => {});
+}
+
+function refreshCamera(url) {
+  if (!camEnabled) return;
+  const img = document.getElementById('cam-img');
+  const t = Date.now();
+  const newImg = new Image();
+  newImg.onload = () => {
+    img.src = newImg.src;
+    const fps = camLastT ? Math.round(1000 / (t - camLastT)) : 0;
+    document.getElementById('cam-fps').textContent = fps > 0 ? fps + ' fps' : '';
+    camLastT = t;
+    setTimeout(() => refreshCamera(url), 100); // ~10 fps
+  };
+  newImg.onerror = () => setTimeout(() => refreshCamera(url), 1000);
+  newImg.src = url + '?t=' + t;
+}
+
+function toggleCamera() {
+  const wrap = document.getElementById('camera-wrap');
+  const btn = document.getElementById('cam-toggle');
+  if (wrap.style.display === 'none') {
+    wrap.style.display = 'block';
+    btn.textContent = 'Hide';
+  } else {
+    wrap.style.display = 'none';
+    btn.textContent = 'Show Camera';
+  }
+}
+
+// ── RAF ────────────────────────────────────────────────────────────────────
+(function loop(){ try{drawAllPlots();}catch(e){} requestAnimationFrame(loop); })();
+
+doConnect();
+</script>
+</body>
+</html>
