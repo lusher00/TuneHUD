@@ -11,9 +11,20 @@ Install:
 import asyncio
 import io
 import logging
+import sys
+import os
 import time
 import threading
 from typing import Optional, Set
+
+# libcamera is installed as a system package but may not be in pip Python's path
+_LIBCAMERA_PATHS = [
+    '/usr/lib/aarch64-linux-gnu/python3.12/site-packages',
+    '/usr/local/lib/python3/dist-packages',
+]
+for _p in _LIBCAMERA_PATHS:
+    if _p not in sys.path and os.path.exists(_p):
+        sys.path.insert(0, _p)
 
 log = logging.getLogger('tunehud.camera')
 
