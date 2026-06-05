@@ -36,7 +36,7 @@ html,body{height:100%;background:var(--bg);color:var(--txt);font-family:var(--mo
 #topbar{display:flex;align-items:center;gap:0;height:40px;background:var(--bg1);border-bottom:1px solid var(--border);flex-shrink:0;padding:0 12px;gap:8px}
 #main{display:flex;flex:1;overflow:hidden}
 #sidebar{width:220px;background:var(--bg1);border-right:1px solid var(--border);display:flex;flex-direction:column;flex-shrink:0;overflow-y:auto}
-#content{flex:1;overflow:hidden;display:flex;flex-direction:column}
+#content{flex:1;overflow:hidden;display:flex;flex-direction:column;min-height:0;min-width:0}
 
 /* ── Topbar ── */
 .logo{font-family:var(--sans);font-weight:600;font-size:15px;color:var(--acc);letter-spacing:0.1em;margin-right:8px}
@@ -63,8 +63,8 @@ html,body{height:100%;background:var(--bg);color:var(--txt);font-family:var(--mo
 .sb-group{padding:6px 12px 2px;font-size:8px;letter-spacing:0.1em;text-transform:uppercase;color:var(--txt3);border-top:1px solid var(--border);margin-top:4px}
 
 /* ── Tabs ── */
-#tabs{display:flex;height:34px;background:var(--bg1);border-bottom:1px solid var(--border);flex-shrink:0}
-.tab{flex:0 0 auto;padding:0 16px;display:flex;align-items:center;font-size:10px;letter-spacing:0.08em;text-transform:uppercase;color:var(--txt3);cursor:pointer;border-bottom:2px solid transparent;transition:all .2s;font-weight:500}
+#tabs{display:flex;height:34px;background:var(--bg1);border-bottom:1px solid var(--border);flex-shrink:0;position:relative;z-index:10}
+.tab{flex:0 0 auto;padding:0 16px;display:flex;align-items:center;font-size:10px;letter-spacing:0.08em;text-transform:uppercase;color:var(--txt3);cursor:pointer;border-bottom:2px solid transparent;transition:all .2s;font-weight:500;user-select:none}
 .tab:hover{color:var(--txt2)}
 .tab.active{color:var(--acc);border-bottom-color:var(--acc)}
 
@@ -266,7 +266,7 @@ html,body{height:100%;background:var(--bg);color:var(--txt);font-family:var(--mo
         <div class="panel" id="panel-settings">
           <div class="card">
             <div class="card-title">Gateway connection</div>
-            <div class="field"><label>Host</label><input id="cfg-host" value="192.168.1.140"></div>
+            <div class="field"><label>Host</label><input id="cfg-host" value="192.168.1.126"></div>
             <div class="field"><label>Port</label><input id="cfg-port" value="8765" type="number"></div>
             <button class="btn-primary btn-connect" onclick="doConnect()">Connect</button>
             <button class="btn-primary btn-disconnect" onclick="doDisconnect()">Disconnect</button>
@@ -320,23 +320,28 @@ const writeHistory = [];
 // ── WebSocket ──────────────────────────────────────────────────────────────
 let ws = null;
 let reconnTimer = null;
+let reconnDelay = 5000;
 
 function doConnect() {
   const host = document.getElementById('cfg-host').value.trim();
   const port = document.getElementById('cfg-port').value.trim();
+  reconnDelay = 5000;
   connect(`ws://${host}:${port}`);
 }
 
 function doDisconnect() {
   clearTimeout(reconnTimer);
+  reconnTimer = null;
+  reconnDelay = 5000;
   if (ws) { ws.close(); ws = null; }
   setConnected(false);
 }
 
 function connect(url) {
-  if (ws) ws.close();
+  if (ws) { try { ws.close(); } catch {} }
   ws = new WebSocket(url);
   ws.onopen = () => {
+    reconnDelay = 5000;
     setConnected(true);
     sendMsg({type: 'manifest_req'});
     const hz = parseInt(document.getElementById('hz-box').value) || 20;
@@ -345,7 +350,9 @@ function connect(url) {
   };
   ws.onclose = ws.onerror = () => {
     setConnected(false);
-    reconnTimer = setTimeout(() => connect(url), 5000);
+    clearTimeout(reconnTimer);
+    reconnTimer = setTimeout(() => connect(url), reconnDelay);
+    reconnDelay = Math.min(reconnDelay * 2, 30000);
   };
   ws.onmessage = e => {
     try { handleMsg(JSON.parse(e.data)); } catch {}
@@ -757,7 +764,7 @@ function fmtA(v) {
 
 function drawAllPlots() {
   const panel = document.getElementById('panel-graph');
-  if (panel.style.display === 'none') return;
+  if (!panel || panel.style.display === 'none') return;
   const tNow = performance.now()/1000 - (t0 || 0) + (t0 || performance.now()/1000);
   const tMax = Math.max(...Object.values(bufs).flatMap(b => b.map(p => p.t)), 0) || performance.now()/1000;
   const tMin = tMax - windowSec;
@@ -856,7 +863,7 @@ function fmt(v) {
 }
 
 // ── RAF loop ───────────────────────────────────────────────────────────────
-(function loop(){ drawAllPlots(); requestAnimationFrame(loop); })();
+(function loop(){ try { drawAllPlots(); } catch(e) {} requestAnimationFrame(loop); })();
 
 // Auto-connect
 doConnect();

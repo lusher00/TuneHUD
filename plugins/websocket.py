@@ -39,11 +39,18 @@ class WebSocketTransport(TransportPlugin):
         self._ws = await websockets.connect(uri)
         self._connected = True
         await self._ws.send(json.dumps({'type': 'manifest_req'}))
-        raw = await self._ws.recv()
-        msg = json.loads(raw)
-        if msg.get('type') == 'manifest_resp':
-            self._manifest_cache = {k: v for k, v in msg.items() if k != 'type'}
-            log.info('Manifest received: {} params'.format(len(self._manifest_cache.get('params', []))))
+        # Wait up to 3s for manifest_resp
+        for _ in range(30):
+            try:
+                raw = await asyncio.wait_for(self._ws.recv(), timeout=0.1)
+                msg = json.loads(raw)
+                if msg.get('type') == 'manifest_resp':
+                    self._manifest_cache = {k: v for k, v in msg.items() if k != 'type'}
+                    log.info('Manifest received: {} params'.format(
+                        len(self._manifest_cache.get('params', []))))
+                    break
+            except asyncio.TimeoutError:
+                continue
         self._recv_task = asyncio.ensure_future(self._recv_loop())
 
     async def disconnect(self):
