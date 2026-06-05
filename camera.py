@@ -46,14 +46,15 @@ class CameraStreamer:
         try:
             cmd = [
                 _rpicam_cmd(),
-                '--width',      str(self.width),
-                '--height',     str(self.height),
-                '--framerate',  str(self.fps),
-                '--codec',      'mjpeg',
+                '--width',          str(self.width),
+                '--height',         str(self.height),
+                '--framerate',      str(self.fps),
+                '--codec',          'mjpeg',
                 '--inline',
                 '--nopreview',
-                '-t',           '0',       # run forever
-                '-o',           '-',       # output to stdout
+                '--autofocus-mode', 'continuous',
+                '-t',               '0',
+                '-o',               '-',
             ]
             log.info('Starting camera: {}'.format(' '.join(cmd)))
             self._proc = subprocess.Popen(
