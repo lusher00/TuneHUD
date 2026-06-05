@@ -358,40 +358,42 @@ class TuneHUDGateway:
                 return Response(404, 'Not Found', Headers([('Content-Type','text/html')]), body)
             return (404, [('Content-Type','text/html')], body)
 
-    async def _mjpeg_server(self, host: str, port: int) -> None:
-        """Serve true MJPEG stream on a dedicated port."""
-        async def handle_client(reader, writer):
-            try:
-                # Read HTTP request
-                await reader.read(1024)
-                # Send MJPEG headers
-                writer.write(
-                    b'HTTP/1.1 200 OK\r\n'
-                    b'Content-Type: multipart/x-mixed-replace; boundary=TuneHUDframe\r\n'
-                    b'Cache-Control: no-cache\r\n'
-                    b'Connection: close\r\n\r\n'
-                )
-                await writer.drain()
-                while True:
-                    frame = self._camera.get_snapshot_jpeg()
-                    if frame:
-                        chunk = (
-                            b'--TuneHUDframe\r\n'
-                            b'Content-Type: image/jpeg\r\n'
-                            b'Content-Length: ' + str(len(frame)).encode() + b'\r\n\r\n'
-                            + frame + b'\r\n'
-                        )
-                        writer.write(chunk)
-                        await writer.drain()
-                    await asyncio.sleep(1.0 / self._camera.fps)
-            except Exception:
-                pass
-            finally:
-                writer.close()
+    def _start_mjpeg_flask(self, host: str, port: int) -> None:
+        """Start Flask MJPEG server in a background thread — same approach as cat tracker."""
+        try:
+            from flask import Flask, Response
+        except ImportError:
+            log.warning('Flask not installed — camera HTTP stream disabled. pip3 install flask')
+            return
 
-        server = await asyncio.start_server(handle_client, host, port)
-        async with server:
-            await server.serve_forever()
+        camera = self._camera
+        flask_app = Flask('tunehud_camera')
+        logging.getLogger('werkzeug').setLevel(logging.WARNING)
+
+        def mjpeg_generator():
+            last = None
+            while True:
+                frame = camera.get_snapshot_jpeg()
+                if frame and frame is not last:
+                    last = frame
+                    yield (b'--frame\r\n'
+                           b'Content-Type: image/jpeg\r\n\r\n' +
+                           frame + b'\r\n')
+                time.sleep(1.0 / camera.fps)
+
+        @flask_app.route('/camera')
+        def camera_stream():
+            return Response(mjpeg_generator(),
+                            mimetype='multipart/x-mixed-replace; boundary=frame')
+
+        import threading
+        t = threading.Thread(
+            target=lambda: flask_app.run(host=host, port=port, threaded=True),
+            daemon=True
+        )
+        t.start()
+        log.info('MJPEG stream: http://{}:{}/camera'.format(
+            host if host != '0.0.0.0' else 'localhost', port))
 
     async def _ws_handler(self, ws):
         await self._register(ws)
@@ -518,19 +520,12 @@ class TuneHUDGateway:
         async with ws_serve(self._ws_handler, host, port, **serve_kwargs):
             log.info('WebSocket server listening on ws://{}:{}'.format(host, port))
 
-            # Start MJPEG server after WebSocket is up
-            mjpeg_task = None
+            # Start Flask MJPEG server in background thread
             if self._camera and self._camera.is_running():
-                mjpeg_port = 8769
-                mjpeg_task = asyncio.ensure_future(self._mjpeg_server(host, mjpeg_port))
-                log.info('MJPEG stream: http://{}:{}/camera'.format(
-                    host if host != '0.0.0.0' else 'localhost', mjpeg_port))
+                self._start_mjpeg_flask(host, 8769)
 
             try:
-                tasks = [self._stream_loop(), self._connect_loop()]
-                if mjpeg_task:
-                    tasks.append(mjpeg_task)
-                await asyncio.gather(*tasks)
+                await asyncio.gather(self._stream_loop(), self._connect_loop())
             finally:
                 if self._logger:
                     self._logger.close()
