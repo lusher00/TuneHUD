@@ -21,9 +21,23 @@ from pathlib import Path
 
 import websockets
 try:
+    # websockets >= 14 (asyncio-based)
+    from websockets.asyncio.server import serve as ws_serve, ServerConnection
+    from websockets.http11 import Request, Response
+    from websockets.datastructures import Headers
+    WS_V2 = True
+except ImportError:
+    # websockets 9-11 (legacy)
+    ws_serve = websockets.serve
+    WS_V2 = False
+
+try:
     from websockets.legacy.server import WebSocketServerProtocol
 except ImportError:
-    from websockets.server import WebSocketServerProtocol
+    try:
+        from websockets.server import WebSocketServerProtocol
+    except ImportError:
+        WebSocketServerProtocol = object
 
 sys.path.insert(0, os.path.dirname(__file__))
 
@@ -127,10 +141,19 @@ class TuneHUDGateway:
             'controllers': controllers,
         }
 
+    def _remote_addr(self, ws):
+        try:
+            return ws.remote_address
+        except AttributeError:
+            try:
+                return ws.request.remote_address
+            except Exception:
+                return 'unknown'
+
     async def _register(self, ws):
         self._clients.add(ws)
         log.info('Client connected: {} ({} total)'.format(
-            ws.remote_address, len(self._clients)))
+            self._remote_addr(ws), len(self._clients)))
         if self._manifests:
             await ws.send(json.dumps(self._combined_manifest()))
 
@@ -190,7 +213,7 @@ class TuneHUDGateway:
                     controller, name, value, readback))
                 if self._logger:
                     self._logger.log_write(t, controller, name, prev, readback,
-                                           str(ws.remote_address))
+                                           str(self._remote_addr(ws)))
                 self._last_values[key] = readback
             except Exception as e:
                 log.error('param_write failed {}.{}: {}'.format(controller, name, e))
@@ -207,36 +230,41 @@ class TuneHUDGateway:
                     'writes_file': str(self._logger._writes_path),
                 }))
 
-    async def _process_request(self, path, request_headers):
-        """Serve dashboard HTML for plain HTTP requests; let WebSocket upgrades through."""
-        # WebSocket upgrade requests have the Upgrade header — pass them through
-        if request_headers.get('Upgrade', '').lower() == 'websocket':
-            return None  # let websockets handle it normally
+    async def _process_request(self, connection, request):
+        """Serve dashboard HTML for plain HTTP GET; let WebSocket upgrades through."""
+        # WebSocket upgrade has 'Upgrade: websocket' header
+        upgrade = request.headers.get('Upgrade', '')
+        if upgrade.lower() == 'websocket':
+            return None  # pass through to WebSocket handler
 
-        # HTTP GET — serve the dashboard
+        # Serve dashboard HTML
         if os.path.exists(DASHBOARD_FILE):
             with open(DASHBOARD_FILE, 'rb') as f:
                 body = f.read()
-            headers = [
-                ('Content-Type', 'text/html; charset=utf-8'),
-                ('Content-Length', str(len(body))),
-                ('Cache-Control', 'no-cache'),
-            ]
-            return (200, headers, body)
+            if WS_V2:
+                headers = Headers([
+                    ('Content-Type', 'text/html; charset=utf-8'),
+                    ('Content-Length', str(len(body))),
+                    ('Cache-Control', 'no-cache'),
+                ])
+                return Response(200, 'OK', headers, body)
+            else:
+                return (200, [
+                    ('Content-Type', 'text/html; charset=utf-8'),
+                    ('Content-Length', str(len(body))),
+                ], body)
         else:
-            body = b'<h1>TuneHUD dashboard not found</h1><p>Place tunehud_dashboard.html next to main.py</p>'
-            return (404, [('Content-Type', 'text/html')], body)
+            body = b'<h1>TuneHUD dashboard not found</h1>'
+            if WS_V2:
+                return Response(404, 'Not Found', Headers([('Content-Type','text/html')]), body)
+            return (404, [('Content-Type','text/html')], body)
 
-    async def _ws_handler(self, ws, path=None):
-        # Serve dashboard over HTTP if requested
-        if hasattr(ws, 'path') and ws.path and ws.path != '/':
-            return
-
+    async def _ws_handler(self, ws):
         await self._register(ws)
         try:
             async for raw in ws:
                 await self._handle_message(ws, raw)
-        except websockets.exceptions.ConnectionClosed:
+        except Exception:
             pass
         finally:
             await self._unregister(ws)
@@ -284,7 +312,7 @@ class TuneHUDGateway:
                         for ws in list(self._clients):
                             try:
                                 await ws.send(msg)
-                            except websockets.exceptions.ConnectionClosed:
+                            except Exception:
                                 dead.add(ws)
                     self._clients -= dead
 
@@ -340,8 +368,11 @@ class TuneHUDGateway:
             except Exception as e:
                 log.warning('Controller {} initial connect failed: {}'.format(name, e))
 
-        serve_kwargs = {'process_request': self._process_request} if self.cfg.server.serve_dashboard else {}
-        async with websockets.serve(self._ws_handler, host, port, **serve_kwargs):
+        serve_kwargs = {}
+        if self.cfg.server.serve_dashboard:
+            serve_kwargs['process_request'] = self._process_request
+
+        async with ws_serve(self._ws_handler, host, port, **serve_kwargs):
             log.info('WebSocket server listening on ws://{}:{}'.format(host, port))
             try:
                 await asyncio.gather(self._stream_loop(), self._connect_loop())
