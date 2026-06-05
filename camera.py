@@ -29,7 +29,7 @@ class CameraStreamer:
     Parses the MJPEG stream and serves latest frame via get_snapshot_jpeg().
     """
 
-    def __init__(self, width=1280, height=720, fps=15):
+    def __init__(self, width=1920, height=1080, fps=15):
         self.width  = width
         self.height = height
         self.fps    = fps
@@ -64,8 +64,7 @@ class CameraStreamer:
                 stdout=subprocess.PIPE,
                 stderr=subprocess.DEVNULL,
                 bufsize=0,
-            )
-            self._running = True
+            )            self._running = True
             self._thread = threading.Thread(target=self._read_loop, daemon=True)
             self._thread.start()
             # Wait briefly for first frame

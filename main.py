@@ -116,7 +116,7 @@ class TuneHUDGateway:
         self.cfg = config
         self._clients = set()
         self._device_clients = {}
-        self._camera = CameraStreamer(width=1280, height=720, fps=15) if HAS_CAMERA else None
+        self._camera = CameraStreamer(width=1920, height=1080, fps=30) if HAS_CAMERA else None
         self._stream_hz = min(config.stream.default_hz, config.stream.max_hz)
         self._logger = SessionLogger(log_dir) if log_dir else None
         self._last_values = {}   # controller.param -> value
