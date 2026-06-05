@@ -46,15 +46,17 @@ class CameraStreamer:
         try:
             cmd = [
                 _rpicam_cmd(),
-                '--width',          str(self.width),
-                '--height',         str(self.height),
-                '--framerate',      str(self.fps),
                 '--codec',          'mjpeg',
                 '--inline',
                 '--nopreview',
-                '--autofocus-mode', 'continuous',
-                '-t',               '0',
-                '-o',               '-',
+                '--width',          str(self.width),
+                '--height',         str(self.height),
+                '--framerate',      str(self.fps),
+                '--denoise',        'off',
+                '--autofocus-mode', 'manual',
+                '--flush',
+                '--timeout',        '0',
+                '--output',         '-',
             ]
             log.info('Starting camera: {}'.format(' '.join(cmd)))
             self._proc = subprocess.Popen(
@@ -86,7 +88,7 @@ class CameraStreamer:
         buf = b''
         try:
             while self._running and self._proc:
-                chunk = self._proc.stdout.read(65536)
+                chunk = self._proc.stdout.read(16384)
                 if not chunk:
                     break
                 buf += chunk
