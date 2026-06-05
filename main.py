@@ -108,6 +108,7 @@ class TuneHUDGateway:
     def __init__(self, config, log_dir=None):
         self.cfg = config
         self._clients = set()
+        self._device_clients = {}   # id(ws) -> {ws, name, latest}
         self._stream_hz = min(config.stream.default_hz, config.stream.max_hz)
         self._logger = SessionLogger(log_dir) if log_dir else None
         self._last_values = {}   # controller.param -> value
@@ -159,6 +160,19 @@ class TuneHUDGateway:
 
     async def _unregister(self, ws):
         self._clients.discard(ws)
+        # If this was a registered device, remove it
+        if id(ws) in self._device_clients:
+            dev = self._device_clients.pop(id(ws))
+            ctrl_name = dev['name']
+            self._manifests.pop(ctrl_name, None)
+            log.info('Device disconnected: {}'.format(ctrl_name))
+            # Notify dashboard clients
+            manifest_msg = json.dumps(self._combined_manifest())
+            for client in list(self._clients):
+                try:
+                    await client.send(manifest_msg)
+                except Exception:
+                    pass
         log.info('Client disconnected ({} remaining)'.format(len(self._clients)))
 
     async def _handle_message(self, ws, raw):
@@ -168,6 +182,65 @@ class TuneHUDGateway:
             return
 
         mtype = msg.get('type')
+
+        # Device registration — ESP32/embedded device sends manifest_resp on connect
+        # Gateway adds it as a dynamic controller and routes its stream_data
+        if mtype == 'manifest_resp':
+            ctrl_name = msg.get('device', 'device_{}'.format(len(self._device_clients)))
+            # Sanitize name for use as key
+            ctrl_name = ctrl_name.replace(' ', '_').replace('-', '_').lower()
+            self._device_clients[id(ws)] = {'ws': ws, 'name': ctrl_name, 'latest': {}}
+            self._manifests[ctrl_name] = {
+                'transport': msg.get('transport', 'websocket'),
+                'device':    msg.get('device', ctrl_name),
+                'params':    msg.get('params', []),
+            }
+            log.info('Device registered: {} ({} params)'.format(
+                ctrl_name, len(msg.get('params', []))))
+            # Push updated manifest to all dashboard clients
+            manifest_msg = json.dumps(self._combined_manifest())
+            for client in list(self._clients):
+                if id(client) not in self._device_clients:
+                    try:
+                        await client.send(manifest_msg)
+                    except Exception:
+                        pass
+            return
+
+        # Stream data from a registered device — forward to dashboard clients
+        if mtype == 'stream_data' and id(ws) in self._device_clients:
+            dev = self._device_clients[id(ws)]
+            ctrl_name = dev['name']
+            data = msg.get('data', {})
+            dev['latest'].update(data)
+            for k, v in data.items():
+                self._last_values['{}.{}'.format(ctrl_name, k)] = v
+            # Forward to dashboard clients
+            fwd = json.dumps({
+                'type': 'stream_data',
+                'controller': ctrl_name,
+                't': msg.get('t', time.time()),
+                'data': data,
+            })
+            for client in list(self._clients):
+                if id(client) not in self._device_clients:
+                    try:
+                        await client.send(fwd)
+                    except Exception:
+                        pass
+            return
+
+        # write_ack from device — forward to dashboard clients
+        if mtype == 'write_ack' and id(ws) in self._device_clients:
+            dev = self._device_clients[id(ws)]
+            fwd = json.dumps({**msg, 'controller': dev['name']})
+            for client in list(self._clients):
+                if id(client) not in self._device_clients:
+                    try:
+                        await client.send(fwd)
+                    except Exception:
+                        pass
+            return
 
         if mtype == 'manifest_req':
             await ws.send(json.dumps(self._combined_manifest()))
