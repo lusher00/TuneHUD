@@ -192,7 +192,9 @@ html,body{height:100%;background:var(--bg);color:var(--txt);font-family:var(--mo
                 <span id="cam-fps" style="color:var(--txt3)"></span>
                 <button onclick="toggleCamera()" id="cam-toggle" style="margin-left:auto;padding:2px 8px;background:var(--bg3);border:1px solid var(--border2);border-radius:3px;color:var(--txt2);font-size:9px;cursor:pointer">Hide</button>
               </div>
-              <img id="cam-img" style="width:100%;max-height:300px;object-fit:contain;border-radius:3px;background:#000;display:block" alt="Camera feed">
+              <img id="cam-img" style="width:100%;max-height:300px;object-fit:contain;border-radius:3px;background:#000;display:block" alt="Camera feed"
+                onload="document.getElementById('camera-wrap').style.display='block'"
+                onerror="document.getElementById('camera-wrap').style.display='none'">
             </div>
           </div>
           <div id="gauge-wrap"></div>
@@ -1058,17 +1060,10 @@ function startCamera() {
   const mjpegUrl = `http://${host}:8769/camera`;
   const img = document.getElementById('cam-img');
   const wrap = document.getElementById('camera-wrap');
-
-  // Test if MJPEG endpoint is up
-  fetch(mjpegUrl, {method:'HEAD', signal: AbortSignal.timeout(2000)}).then(() => {
-    wrap.style.display = 'block';
-    img.src = mjpegUrl;
-    document.getElementById('cam-fps').textContent = 'live';
-    camEnabled = true;
-  }).catch(() => {
-    // Not available — hide camera panel
-    wrap.style.display = 'none';
-  });
+  // Set src directly — onerror hides it if not available
+  img.src = mjpegUrl;
+  img.onload = () => { wrap.style.display = 'block'; };
+  img.onerror = () => { wrap.style.display = 'none'; };
 }
 
 function refreshCamera(url) {}  // no-op, browser handles MJPEG natively

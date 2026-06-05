@@ -515,17 +515,17 @@ class TuneHUDGateway:
         if self.cfg.server.serve_dashboard:
             serve_kwargs['process_request'] = self._process_request
 
-        # Start MJPEG HTTP server on port+1 if camera available
-        mjpeg_task = None
-        if self._camera and self._camera.is_running():
-            mjpeg_port = 8769
-            mjpeg_task = asyncio.ensure_future(
-                self._mjpeg_server(host, mjpeg_port))
-            log.info('MJPEG stream: http://{}:{}/camera'.format(
-                host if host != '0.0.0.0' else 'localhost', mjpeg_port))
-
         async with ws_serve(self._ws_handler, host, port, **serve_kwargs):
             log.info('WebSocket server listening on ws://{}:{}'.format(host, port))
+
+            # Start MJPEG server after WebSocket is up
+            mjpeg_task = None
+            if self._camera and self._camera.is_running():
+                mjpeg_port = 8769
+                mjpeg_task = asyncio.ensure_future(self._mjpeg_server(host, mjpeg_port))
+                log.info('MJPEG stream: http://{}:{}/camera'.format(
+                    host if host != '0.0.0.0' else 'localhost', mjpeg_port))
+
             try:
                 tasks = [self._stream_loop(), self._connect_loop()]
                 if mjpeg_task:
@@ -552,6 +552,7 @@ def main():
     )
     # Suppress noisy websockets HTTP rejection logs
     logging.getLogger('websockets.server').setLevel(logging.WARNING)
+    logging.getLogger('websockets.asyncio.server').setLevel(logging.WARNING)
 
     cfg = load_config(args.config)
     log_dir = None if args.no_log else args.log_dir
