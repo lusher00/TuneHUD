@@ -358,6 +358,41 @@ class TuneHUDGateway:
                 return Response(404, 'Not Found', Headers([('Content-Type','text/html')]), body)
             return (404, [('Content-Type','text/html')], body)
 
+    async def _mjpeg_server(self, host: str, port: int) -> None:
+        """Serve true MJPEG stream on a dedicated port."""
+        async def handle_client(reader, writer):
+            try:
+                # Read HTTP request
+                await reader.read(1024)
+                # Send MJPEG headers
+                writer.write(
+                    b'HTTP/1.1 200 OK\r\n'
+                    b'Content-Type: multipart/x-mixed-replace; boundary=TuneHUDframe\r\n'
+                    b'Cache-Control: no-cache\r\n'
+                    b'Connection: close\r\n\r\n'
+                )
+                await writer.drain()
+                while True:
+                    frame = self._camera.get_snapshot_jpeg()
+                    if frame:
+                        chunk = (
+                            b'--TuneHUDframe\r\n'
+                            b'Content-Type: image/jpeg\r\n'
+                            b'Content-Length: ' + str(len(frame)).encode() + b'\r\n\r\n'
+                            + frame + b'\r\n'
+                        )
+                        writer.write(chunk)
+                        await writer.drain()
+                    await asyncio.sleep(1.0 / self._camera.fps)
+            except Exception:
+                pass
+            finally:
+                writer.close()
+
+        server = await asyncio.start_server(handle_client, host, port)
+        async with server:
+            await server.serve_forever()
+
     async def _ws_handler(self, ws):
         await self._register(ws)
         try:
@@ -480,10 +515,22 @@ class TuneHUDGateway:
         if self.cfg.server.serve_dashboard:
             serve_kwargs['process_request'] = self._process_request
 
+        # Start MJPEG HTTP server on port+1 if camera available
+        mjpeg_task = None
+        if self._camera and self._camera.is_running():
+            mjpeg_port = port + 1
+            mjpeg_task = asyncio.ensure_future(
+                self._mjpeg_server(host, mjpeg_port))
+            log.info('MJPEG stream: http://{}:{}/camera'.format(
+                host if host != '0.0.0.0' else 'localhost', mjpeg_port))
+
         async with ws_serve(self._ws_handler, host, port, **serve_kwargs):
             log.info('WebSocket server listening on ws://{}:{}'.format(host, port))
             try:
-                await asyncio.gather(self._stream_loop(), self._connect_loop())
+                tasks = [self._stream_loop(), self._connect_loop()]
+                if mjpeg_task:
+                    tasks.append(mjpeg_task)
+                await asyncio.gather(*tasks)
             finally:
                 if self._logger:
                     self._logger.close()
@@ -503,6 +550,8 @@ def main():
         level=logging.DEBUG if args.verbose else logging.INFO,
         format='%(asctime)s [%(levelname)s] %(name)s: %(message)s',
     )
+    # Suppress noisy websockets HTTP rejection logs
+    logging.getLogger('websockets.server').setLevel(logging.WARNING)
 
     cfg = load_config(args.config)
     log_dir = None if args.no_log else args.log_dir

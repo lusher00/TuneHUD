@@ -1052,40 +1052,39 @@ function fmt(v){
 
 // ── Camera ────────────────────────────────────────────────────────────────
 let camEnabled = false;
-let camInterval = null;
-let camLastT = 0;
 
 function startCamera() {
   const host = document.getElementById('cfg-host').value.trim();
-  const port = document.getElementById('cfg-port').value.trim();
-  const url = `http://${host}:${port}/camera`;
+  const mjpegUrl = `http://${host}:8766/camera`;
   const img = document.getElementById('cam-img');
   const wrap = document.getElementById('camera-wrap');
 
-  // Test if camera endpoint exists
-  fetch(url).then(r => {
-    if (r.ok && r.headers.get('content-type')?.includes('image')) {
-      wrap.style.display = 'block';
-      camEnabled = true;
-      refreshCamera(url);
-    }
-  }).catch(() => {});
+  // Test if MJPEG endpoint is up
+  fetch(mjpegUrl, {method:'HEAD', signal: AbortSignal.timeout(2000)}).then(() => {
+    wrap.style.display = 'block';
+    img.src = mjpegUrl;
+    document.getElementById('cam-fps').textContent = 'live';
+    camEnabled = true;
+  }).catch(() => {
+    // Not available — hide camera panel
+    wrap.style.display = 'none';
+  });
 }
 
-function refreshCamera(url) {
-  if (!camEnabled) return;
+function refreshCamera(url) {}  // no-op, browser handles MJPEG natively
+
+function toggleCamera() {
+  const wrap = document.getElementById('camera-wrap');
+  const btn = document.getElementById('cam-toggle');
   const img = document.getElementById('cam-img');
-  const t = Date.now();
-  const newImg = new Image();
-  newImg.onload = () => {
-    img.src = newImg.src;
-    const fps = camLastT ? Math.round(1000 / (t - camLastT)) : 0;
-    document.getElementById('cam-fps').textContent = fps > 0 ? fps + ' fps' : '';
-    camLastT = t;
-    setTimeout(() => refreshCamera(url), 100); // ~10 fps
-  };
-  newImg.onerror = () => setTimeout(() => refreshCamera(url), 1000);
-  newImg.src = url + '?t=' + t;
+  if (wrap.style.display === 'none') {
+    wrap.style.display = 'block';
+    btn.textContent = 'Hide';
+    if (camEnabled) img.src = img.src; // re-trigger
+  } else {
+    wrap.style.display = 'none';
+    btn.textContent = 'Show Camera';
+  }
 }
 
 function toggleCamera() {
