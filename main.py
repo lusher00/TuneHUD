@@ -207,6 +207,26 @@ class TuneHUDGateway:
                     'writes_file': str(self._logger._writes_path),
                 }))
 
+    async def _process_request(self, path, request_headers):
+        """Serve dashboard HTML for plain HTTP requests; let WebSocket upgrades through."""
+        # WebSocket upgrade requests have the Upgrade header — pass them through
+        if request_headers.get('Upgrade', '').lower() == 'websocket':
+            return None  # let websockets handle it normally
+
+        # HTTP GET — serve the dashboard
+        if os.path.exists(DASHBOARD_FILE):
+            with open(DASHBOARD_FILE, 'rb') as f:
+                body = f.read()
+            headers = [
+                ('Content-Type', 'text/html; charset=utf-8'),
+                ('Content-Length', str(len(body))),
+                ('Cache-Control', 'no-cache'),
+            ]
+            return (200, headers, body)
+        else:
+            body = b'<h1>TuneHUD dashboard not found</h1><p>Place tunehud_dashboard.html next to main.py</p>'
+            return (404, [('Content-Type', 'text/html')], body)
+
     async def _ws_handler(self, ws, path=None):
         # Serve dashboard over HTTP if requested
         if hasattr(ws, 'path') and ws.path and ws.path != '/':
@@ -320,7 +340,8 @@ class TuneHUDGateway:
             except Exception as e:
                 log.warning('Controller {} initial connect failed: {}'.format(name, e))
 
-        async with websockets.serve(self._ws_handler, host, port):
+        serve_kwargs = {'process_request': self._process_request} if self.cfg.server.serve_dashboard else {}
+        async with websockets.serve(self._ws_handler, host, port, **serve_kwargs):
             log.info('WebSocket server listening on ws://{}:{}'.format(host, port))
             try:
                 await asyncio.gather(self._stream_loop(), self._connect_loop())
